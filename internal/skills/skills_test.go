@@ -115,8 +115,8 @@ func TestSkillsStatus_DetectsMissingAndDrift(t *testing.T) {
 	}
 
 	tr := targetResults[0]
-	if tr["name"] != "test-agent" {
-		t.Errorf("target name = %v, want 'test-agent'", tr["name"])
+	if tr["target"] != "test-agent" {
+		t.Errorf("target name = %v, want 'test-agent'", tr["target"])
 	}
 
 	// shared: alpha and beta are in both.
@@ -140,8 +140,8 @@ func TestSkillsStatus_DetectsMissingAndDrift(t *testing.T) {
 	}
 
 	// local_only: delta is only in target.
-	if tr["local_only"] != 1 {
-		t.Errorf("local_only = %v, want 1 (delta)", tr["local_only"])
+	if tr["local"] != 1 {
+		t.Errorf("local_only = %v, want 1 (delta)", tr["local"])
 	}
 
 	// unsynced = missing + drift = 2.
@@ -200,9 +200,8 @@ func TestSkillsSync_CopiesAndRemovesStale(t *testing.T) {
 	targetResults := result["targets"].([]map[string]any)
 	tr := targetResults[0]
 
-	copied, _ := tr["copied"].([]string)
-	if len(copied) != 2 {
-		t.Errorf("first sync copied = %v, want 2 items", copied)
+	if tr["created"] != 2 {
+		t.Errorf("first sync created = %v, want 2", tr["created"])
 	}
 
 	// Verify files were actually copied.
@@ -231,9 +230,8 @@ func TestSkillsSync_CopiesAndRemovesStale(t *testing.T) {
 	targetResults2 := result2["targets"].([]map[string]any)
 	tr2 := targetResults2[0]
 
-	removed, _ := tr2["removed"].([]string)
-	if len(removed) != 1 || removed[0] != "beta" {
-		t.Errorf("second sync removed = %v, want [beta]", removed)
+	if tr2["removed"] != 1 {
+		t.Errorf("second sync removed = %v, want 1", tr2["removed"])
 	}
 
 	// Verify beta was actually removed from target.
@@ -273,9 +271,8 @@ func TestSkillsSync_UpdatesDrifted(t *testing.T) {
 	targetResults := result2["targets"].([]map[string]any)
 	tr := targetResults[0]
 
-	updated, _ := tr["updated"].([]string)
-	if len(updated) != 1 || updated[0] != "alpha" {
-		t.Errorf("updated = %v, want [alpha]", updated)
+	if tr["updated"] != 1 {
+		t.Errorf("updated = %v, want 1", tr["updated"])
 	}
 
 	// Verify target has the new content.
@@ -361,14 +358,11 @@ func TestSkillsPull_RespectsOverwrite(t *testing.T) {
 		t.Fatalf("SkillsPull failed: %v", err)
 	}
 
-	created, _ := result["created"].([]string)
-	skipped, _ := result["skipped"].([]string)
-
-	if len(created) != 1 || created[0] != "beta" {
-		t.Errorf("created = %v, want [beta]", created)
+	if result["created"] != 1 {
+		t.Errorf("created = %v, want 1", result["created"])
 	}
-	if len(skipped) != 1 || skipped[0] != "alpha" {
-		t.Errorf("skipped = %v, want [alpha]", skipped)
+	if result["skipped"] != 1 {
+		t.Errorf("skipped = %v, want 1", result["skipped"])
 	}
 
 	// Source alpha should still be v1.
@@ -406,9 +400,8 @@ func TestSkillsPull_WithOverwrite(t *testing.T) {
 		t.Fatalf("SkillsPull failed: %v", err)
 	}
 
-	updated, _ := result["updated"].([]string)
-	if len(updated) != 1 || updated[0] != "alpha" {
-		t.Errorf("updated = %v, want [alpha]", updated)
+	if result["updated"] != 1 {
+		t.Errorf("updated = %v, want 1", result["updated"])
 	}
 
 	// Source alpha should now be v2.
@@ -434,9 +427,8 @@ func TestSkillsPull_OverwriteSkipsIdentical(t *testing.T) {
 		t.Fatalf("SkillsPull failed: %v", err)
 	}
 
-	skipped, _ := result["skipped"].([]string)
-	if len(skipped) != 1 || skipped[0] != "alpha" {
-		t.Errorf("identical skills should be skipped even with overwrite, got skipped=%v", skipped)
+	if result["skipped"] != 1 {
+		t.Errorf("identical skills should be skipped even with overwrite, got skipped=%v", result["skipped"])
 	}
 }
 

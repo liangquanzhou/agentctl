@@ -123,14 +123,16 @@ func SkillsStatus(sourceDir string, targets map[string]string) map[string]any {
 		unsyncedTotal += unsynced
 
 		targetResults = append(targetResults, map[string]any{
-			"name":       tgtName,
-			"dir":        tgtDir,
+			"target":     tgtName,
+			"path":       tgtDir,
+			"exists":     dirExists(tgtDir),
 			"shared":     len(shared),
-			"local_only": len(localOnly),
+			"local":      len(localOnly),
 			"missing":    len(missing),
 			"drift":      len(drift),
 			"drift_list": drift,
 			"unsynced":   unsynced,
+			"status":     syncStatus(unsynced),
 		})
 	}
 
@@ -228,13 +230,30 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 		actions := len(copied) + len(updated) + len(removed)
 		totalActions += actions
 
+		// Re-discover target skills after sync to compute unsynced count.
+		postTgtSkills := discoverSkills(tgtDir)
+		postTgtHashes := make(map[string]string, len(postTgtSkills))
+		for name, dir := range postTgtSkills {
+			postTgtHashes[name] = hashDir(dir)
+		}
+		postUnsynced := 0
+		for name, srcHash := range srcHashes {
+			if tgtHash, ok := postTgtHashes[name]; !ok || srcHash != tgtHash {
+				postUnsynced++
+			}
+		}
+		unchanged := len(srcSkills) - len(copied) - len(updated)
+
 		targetResults = append(targetResults, map[string]any{
-			"name":    tgtName,
-			"dir":     tgtDir,
-			"copied":  copied,
-			"updated": updated,
-			"removed": removed,
-			"actions": actions,
+			"target":    tgtName,
+			"path":      tgtDir,
+			"created":   len(copied),
+			"updated":   len(updated),
+			"removed":   len(removed),
+			"unchanged": unchanged,
+			"unsynced":  postUnsynced,
+			"status":    syncStatus(postUnsynced),
+			"actions":   actions,
 		})
 	}
 
@@ -296,9 +315,9 @@ func SkillsPull(sourceDir, targetName, targetDir string, dryRun, overwrite bool)
 		"target":     targetName,
 		"target_dir": targetDir,
 		"source_dir": sourceDir,
-		"created":    created,
-		"updated":    updated,
-		"skipped":    skipped,
+		"created":    len(created),
+		"updated":    len(updated),
+		"skipped":    len(skipped),
 	}, nil
 }
 
@@ -504,6 +523,20 @@ func saveManagedState(stateDir string, data map[string][]string) {
 }
 
 // ── Utility ──────────────────────────────────────────────────────────
+
+// dirExists returns true if path exists and is a directory.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// syncStatus returns "synced" when unsynced==0, otherwise "drift".
+func syncStatus(unsynced int) string {
+	if unsynced == 0 {
+		return "synced"
+	}
+	return "drift"
+}
 
 // sortedKeys returns the keys of a map sorted alphabetically.
 func sortedKeys[V any](m map[string]V) []string {

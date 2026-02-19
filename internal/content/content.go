@@ -535,7 +535,7 @@ func ContentPlan(configDir string, opts PlanOpts) (map[string]any, error) {
 	if opts.Scope == "project" {
 		return map[string]any{
 			"generated_at": tx.UTCNowISO(),
-			"items":        planItemsToSlice(items),
+			"items":        nilItems(items),
 		}, nil
 	}
 
@@ -687,20 +687,18 @@ func ContentPlan(configDir string, opts PlanOpts) (map[string]any, error) {
 
 	return map[string]any{
 		"generated_at": tx.UTCNowISO(),
-		"items":        planItemsToSlice(items),
+		"items":        nilItems(items),
 	}, nil
 }
 
-// planItemsToSlice converts []map[string]any to []any for JSON compat.
-func planItemsToSlice(items []map[string]any) []any {
+// nilItems ensures a nil slice is replaced with an empty slice so JSON
+// serialisation emits [] instead of null.  The concrete type
+// []map[string]any is preserved so callers can type-assert directly.
+func nilItems(items []map[string]any) []map[string]any {
 	if items == nil {
-		items = []map[string]any{}
+		return []map[string]any{}
 	}
-	result := make([]any, len(items))
-	for i, item := range items {
-		result[i] = item
-	}
-	return result
+	return items
 }
 
 // ── Apply ────────────────────────────────────────────────────────────
@@ -850,14 +848,10 @@ func ContentApply(configDir, stateDir string, opts ApplyOpts) (map[string]any, e
 			return
 		}
 
-		planItems, _ := planResult["items"].([]any)
+		planItems, _ := planResult["items"].([]map[string]any)
 		seq := 0
 
-		for _, itemRaw := range planItems {
-			item, ok := itemRaw.(map[string]any)
-			if !ok {
-				continue
-			}
+		for _, item := range planItems {
 
 			changed := tx.GetBool(item, "changed", false)
 			if !changed {
