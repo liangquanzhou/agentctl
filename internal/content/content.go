@@ -63,18 +63,22 @@ func resolvePath(target string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve path %q: %w", target, err)
 	}
-	// Evaluate symlinks for the final safety check
+	// EvalSymlinks on both paths for proper comparison
 	home := tx.HomeDir()
 	resolvedHome, err := filepath.EvalSymlinks(home)
 	if err != nil {
 		resolvedHome = home
 	}
-	// Check that the resolved path is under $HOME
-	resolvedClean := filepath.Clean(resolved)
+	resolvedTarget, err := filepath.EvalSymlinks(filepath.Dir(resolved))
+	if err != nil {
+		// Parent dir may not exist yet — fall back to lexical check
+		resolvedTarget = filepath.Dir(resolved)
+	}
+	resolvedClean := filepath.Join(resolvedTarget, filepath.Base(resolved))
 	if !strings.HasPrefix(resolvedClean, resolvedHome+string(filepath.Separator)) && resolvedClean != resolvedHome {
 		return "", fmt.Errorf("target path escapes home: %s", target)
 	}
-	return resolvedClean, nil
+	return resolved, nil
 }
 
 // resolveProjectPath resolves a relative filename inside projectDir. Rejects
@@ -867,8 +871,13 @@ func ContentApply(configDir, stateDir string, opts ApplyOpts) (map[string]any, e
 			seq++
 			if snapErr != nil {
 				applyErr = fmt.Errorf("snapshot %s: %w", path, snapErr)
-				rollbackChanges(backupMeta)
-				manifest["result"] = "rolled_back"
+				rbErrs := rollbackChanges(backupMeta)
+				if len(rbErrs) > 0 {
+					manifest["result"] = "partial_rollback"
+					manifest["rollback_errors"] = rbErrs
+				} else {
+					manifest["result"] = "rolled_back"
+				}
 				manifest["severity"] = "critical"
 				manifest["error"] = applyErr.Error()
 				return
@@ -896,8 +905,13 @@ func ContentApply(configDir, stateDir string, opts ApplyOpts) (map[string]any, e
 
 			if writeErr != nil {
 				applyErr = fmt.Errorf("apply %s for %s: %w", itemType, itemAgent, writeErr)
-				rollbackChanges(backupMeta)
-				manifest["result"] = "rolled_back"
+				rbErrs := rollbackChanges(backupMeta)
+				if len(rbErrs) > 0 {
+					manifest["result"] = "partial_rollback"
+					manifest["rollback_errors"] = rbErrs
+				} else {
+					manifest["result"] = "rolled_back"
+				}
 				manifest["severity"] = "critical"
 				manifest["error"] = applyErr.Error()
 				return
@@ -1059,17 +1073,27 @@ func applyIgnoreChange(ignoreCfg map[string]any, path string) error {
 // ── Rollback ─────────────────────────────────────────────────────────
 
 // rollbackChanges restores files from snapshots in reverse order.
-func rollbackChanges(metas []changeMeta) {
+// Returns a list of errors encountered during rollback (empty if all succeeded).
+func rollbackChanges(metas []changeMeta) []string {
+	var errs []string
 	for i := len(metas) - 1; i >= 0; i-- {
 		meta := metas[i]
 		if meta.PreExists && meta.Snapshot != "" {
-			_ = tx.EnsureParent(meta.Path)
-			_ = tx.CopyFile(meta.Snapshot, meta.Path)
+			if err := tx.EnsureParent(meta.Path); err != nil {
+				errs = append(errs, fmt.Sprintf("rollback ensure parent %s: %v", meta.Path, err))
+				continue
+			}
+			if err := tx.CopyFile(meta.Snapshot, meta.Path); err != nil {
+				errs = append(errs, fmt.Sprintf("rollback restore %s: %v", meta.Path, err))
+			}
 		} else {
 			// File did not exist before — remove it
-			_ = os.Remove(meta.Path)
+			if err := os.Remove(meta.Path); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, fmt.Sprintf("rollback remove %s: %v", meta.Path, err))
+			}
 		}
 	}
+	return errs
 }
 
 // ── Utilities ────────────────────────────────────────────────────────

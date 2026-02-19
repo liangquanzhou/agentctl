@@ -170,6 +170,7 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 	totalActions := 0
 
 	var targetResults []map[string]any
+	var syncErrors []string
 
 	sortedTargets := sortedKeys(targets)
 	for _, tgtName := range sortedTargets {
@@ -189,11 +190,17 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 				if srcHashes[name] == existingHash {
 					continue // up to date
 				}
-				replaceTree(srcDir, dstDir, dryRun)
+				if err := replaceTree(srcDir, dstDir, dryRun); err != nil {
+					syncErrors = append(syncErrors, fmt.Sprintf("%s/%s: %v", tgtName, name, err))
+					continue
+				}
 				updated = append(updated, name)
 			} else {
 				// New skill.
-				replaceTree(srcDir, dstDir, dryRun)
+				if err := replaceTree(srcDir, dstDir, dryRun); err != nil {
+					syncErrors = append(syncErrors, fmt.Sprintf("%s/%s: %v", tgtName, name, err))
+					continue
+				}
 				copied = append(copied, name)
 			}
 		}
@@ -258,16 +265,22 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 	}
 
 	if !dryRun {
-		saveManagedState(stateDir, managed)
+		if err := saveManagedState(stateDir, managed); err != nil {
+			syncErrors = append(syncErrors, fmt.Sprintf("save state: %v", err))
+		}
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"dry_run":      dryRun,
 		"source_dir":   sourceDir,
 		"source_count": len(srcSkills),
 		"targets":      targetResults,
 		"actions":      totalActions,
 	}
+	if len(syncErrors) > 0 {
+		result["errors"] = syncErrors
+	}
+	return result
 }
 
 // ── SkillsPull ────────────────────────────────────────────────────────
@@ -301,11 +314,15 @@ func SkillsPull(sourceDir, targetName, targetDir string, dryRun, overwrite bool)
 				skipped = append(skipped, name)
 				continue
 			}
-			replaceTree(tgtDir, dstDir, dryRun)
+			if err := replaceTree(tgtDir, dstDir, dryRun); err != nil {
+				return nil, fmt.Errorf("replace skill %s: %w", name, err)
+			}
 			updated = append(updated, name)
 		} else {
 			// New skill from target.
-			replaceTree(tgtDir, dstDir, dryRun)
+			if err := replaceTree(tgtDir, dstDir, dryRun); err != nil {
+				return nil, fmt.Errorf("copy skill %s: %w", name, err)
+			}
 			created = append(created, name)
 		}
 	}
@@ -412,16 +429,18 @@ func hashDir(dir string) string {
 
 // replaceTree removes dst (if it exists) and copies the entire src tree into dst.
 // If dryRun is true, no filesystem changes are made.
-func replaceTree(src, dst string, dryRun bool) {
+func replaceTree(src, dst string, dryRun bool) error {
 	if dryRun {
-		return
+		return nil
 	}
 
 	// Remove existing destination.
-	os.RemoveAll(dst)
+	if err := os.RemoveAll(dst); err != nil {
+		return fmt.Errorf("remove %s: %w", dst, err)
+	}
 
 	// Copy tree.
-	filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -510,7 +529,7 @@ func loadManagedState(stateDir string) map[string][]string {
 }
 
 // saveManagedState persists the managed skills state to disk atomically.
-func saveManagedState(stateDir string, data map[string][]string) {
+func saveManagedState(stateDir string, data map[string][]string) error {
 	path := managedStatePath(stateDir)
 
 	// Convert to map[string]any for WriteJSONAtomic.
@@ -519,7 +538,7 @@ func saveManagedState(stateDir string, data map[string][]string) {
 		obj[k] = v
 	}
 
-	tx.WriteJSONAtomic(path, obj)
+	return tx.WriteJSONAtomic(path, obj)
 }
 
 // ── Utility ──────────────────────────────────────────────────────────

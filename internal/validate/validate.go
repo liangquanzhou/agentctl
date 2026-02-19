@@ -60,6 +60,13 @@ func ValidateConfig(configDir string) (bool, []string) {
 			errors = append(errors, fmt.Sprintf("invalid json in %s: %v", cfg.path, err))
 			continue
 		}
+		// Structural validation
+		if schemaErrs := validateOptionalConfig(cfg.key, data); len(schemaErrs) > 0 {
+			for _, se := range schemaErrs {
+				errors = append(errors, fmt.Sprintf("schema error in %s: %s", cfg.path, se))
+			}
+			continue
+		}
 		loaded[cfg.key] = data
 	}
 
@@ -87,7 +94,7 @@ func ValidateConfig(configDir string) (bool, []string) {
 			}
 			target := tx.GetString(ruleCfg, "target", "")
 			resolved := resolveForValidation(target)
-			if !strings.HasPrefix(resolved, home) {
+			if !strings.HasPrefix(resolved, home+string(filepath.Separator)) && resolved != home {
 				errors = append(errors, fmt.Sprintf("rules/config.json agent '%s': target escapes home: %s", agent, target))
 			}
 			if seenTargets[resolved] {
@@ -106,7 +113,7 @@ func ValidateConfig(configDir string) (bool, []string) {
 			}
 			target := tx.GetString(hookCfg, "target", "")
 			resolved := resolveForValidation(target)
-			if !strings.HasPrefix(resolved, home) {
+			if !strings.HasPrefix(resolved, home+string(filepath.Separator)) && resolved != home {
 				errors = append(errors, fmt.Sprintf("hooks/config.json agent '%s': target escapes home: %s", agent, target))
 			}
 			hooksKey := resolved + "#hooks"
@@ -118,6 +125,154 @@ func ValidateConfig(configDir string) (bool, []string) {
 	}
 
 	return len(errors) == 0, errors
+}
+
+// validHooksFormats lists the accepted hooks format values.
+var validHooksFormats = map[string]bool{
+	"claude_hooks": true,
+	"gemini_hooks": true,
+	"codex_notify": true,
+}
+
+// validateOptionalConfig performs structural validation on optional config files.
+// Returns a list of validation error messages (empty if valid).
+func validateOptionalConfig(key string, data map[string]any) []string {
+	switch key {
+	case "rules/config.json":
+		return validateRulesSchema(data)
+	case "hooks/config.json":
+		return validateHooksSchema(data)
+	case "commands/config.json":
+		return validateCommandsSchema(data)
+	case "ignore.json":
+		return validateIgnoreSchema(data)
+	}
+	return nil
+}
+
+func validateRulesSchema(data map[string]any) []string {
+	var errs []string
+	agents, ok := data["agents"]
+	if !ok {
+		errs = append(errs, "missing required key: agents")
+		return errs
+	}
+	agentsMap, ok := agents.(map[string]any)
+	if !ok {
+		errs = append(errs, "agents must be an object")
+		return errs
+	}
+	for name, val := range agentsMap {
+		agentCfg, ok := val.(map[string]any)
+		if !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': expected object", name))
+			continue
+		}
+		if _, ok := agentCfg["compose"]; !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': missing required key: compose", name))
+		} else if _, ok := agentCfg["compose"].([]any); !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': compose must be an array", name))
+		}
+		if _, ok := agentCfg["target"]; !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': missing required key: target", name))
+		} else if _, ok := agentCfg["target"].(string); !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': target must be a string", name))
+		}
+	}
+	return errs
+}
+
+func validateHooksSchema(data map[string]any) []string {
+	var errs []string
+	agents, ok := data["agents"]
+	if !ok {
+		errs = append(errs, "missing required key: agents")
+		return errs
+	}
+	agentsMap, ok := agents.(map[string]any)
+	if !ok {
+		errs = append(errs, "agents must be an object")
+		return errs
+	}
+	for name, val := range agentsMap {
+		agentCfg, ok := val.(map[string]any)
+		if !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': expected object", name))
+			continue
+		}
+		if _, ok := agentCfg["target"]; !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': missing required key: target", name))
+		} else if _, ok := agentCfg["target"].(string); !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': target must be a string", name))
+		}
+		if formatRaw, ok := agentCfg["format"]; !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': missing required key: format", name))
+		} else if formatStr, ok := formatRaw.(string); !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': format must be a string", name))
+		} else if !validHooksFormats[formatStr] {
+			errs = append(errs, fmt.Sprintf("agent '%s': format must be one of claude_hooks, gemini_hooks, codex_notify", name))
+		}
+	}
+	return errs
+}
+
+func validateCommandsSchema(data map[string]any) []string {
+	var errs []string
+	agents, ok := data["agents"]
+	if !ok {
+		errs = append(errs, "missing required key: agents")
+		return errs
+	}
+	agentsMap, ok := agents.(map[string]any)
+	if !ok {
+		errs = append(errs, "agents must be an object")
+		return errs
+	}
+	for name, val := range agentsMap {
+		agentCfg, ok := val.(map[string]any)
+		if !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': expected object", name))
+			continue
+		}
+		if _, ok := agentCfg["target_dir"]; !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': missing required key: target_dir", name))
+		} else if _, ok := agentCfg["target_dir"].(string); !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': target_dir must be a string", name))
+		}
+	}
+	return errs
+}
+
+func validateIgnoreSchema(data map[string]any) []string {
+	var errs []string
+	if _, ok := data["patterns"]; !ok {
+		errs = append(errs, "missing required key: patterns")
+	} else if _, ok := data["patterns"].([]any); !ok {
+		errs = append(errs, "patterns must be an array")
+	}
+	agents, ok := data["agents"]
+	if !ok {
+		errs = append(errs, "missing required key: agents")
+		return errs
+	}
+	agentsMap, ok := agents.(map[string]any)
+	if !ok {
+		errs = append(errs, "agents must be an object")
+		return errs
+	}
+	for name, val := range agentsMap {
+		agentCfg, ok := val.(map[string]any)
+		if !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': expected object", name))
+			continue
+		}
+		if _, ok := agentCfg["target"]; !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': missing required key: target", name))
+		} else if _, ok := agentCfg["target"].(string); !ok {
+			errs = append(errs, fmt.Sprintf("agent '%s': target must be a string", name))
+		}
+	}
+	return errs
 }
 
 func loadJSON(path string) (map[string]any, error) {

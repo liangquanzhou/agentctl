@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"agentctl/internal/agents"
@@ -30,17 +31,21 @@ var RegistryFiles = []string{
 
 // ── Agent specs cache ───────────────────────────────────────────────
 
-var specsCache map[string]agents.AgentSpec
+var (
+	specsOnce  sync.Once
+	specsCache map[string]agents.AgentSpec
+)
 
 func getAgentSpecs() map[string]agents.AgentSpec {
-	if specsCache == nil {
+	specsOnce.Do(func() {
 		specsCache = agents.BuildAgentSpecs(agents.LoadAgentRegistry(""))
-	}
+	})
 	return specsCache
 }
 
 // ResetAgentSpecsCache clears the cached agent specs (intended for testing).
 func ResetAgentSpecsCache() {
+	specsOnce = sync.Once{}
 	specsCache = nil
 }
 
@@ -278,17 +283,19 @@ func getArgsSlice(spec map[string]any) []any {
 // ── Current state reading ───────────────────────────────────────────
 
 // currentSubtree reads the current MCP config subtree from an agent's file.
-// Returns (subtree, fileExists, fullDocument).
-func currentSubtree(agent string, spec agents.AgentSpec) (map[string]any, bool, map[string]any) {
+// Returns (subtree, fileExists, fullDocument, error).
+// When the file doesn't exist, returns empty maps with nil error.
+// When the file exists but cannot be read/parsed, returns nil maps with the error.
+func currentSubtree(agent string, spec agents.AgentSpec) (map[string]any, bool, map[string]any, error) {
 	if _, err := os.Stat(spec.Path); os.IsNotExist(err) {
-		return map[string]any{}, false, map[string]any{}
+		return map[string]any{}, false, map[string]any{}, nil
 	}
 
 	switch spec.FileType {
 	case "claude_json", "json", "opencode_json":
 		full, err := tx.ReadJSON(spec.Path)
 		if err != nil {
-			return map[string]any{}, false, map[string]any{}
+			return nil, false, nil, fmt.Errorf("read %s for %s: %w", spec.Path, agent, err)
 		}
 		var key string
 		if spec.FileType == "opencode_json" {
@@ -300,21 +307,21 @@ func currentSubtree(agent string, spec agents.AgentSpec) (map[string]any, bool, 
 		if subtree == nil {
 			subtree = map[string]any{}
 		}
-		return subtree, true, full
+		return subtree, true, full, nil
 
 	case "codex_toml":
 		full, err := tx.ReadTOML(spec.Path)
 		if err != nil {
-			return map[string]any{}, false, map[string]any{}
+			return nil, false, nil, fmt.Errorf("read %s for %s: %w", spec.Path, agent, err)
 		}
 		subtree := tx.GetMap(full, "mcp_servers")
 		if subtree == nil {
 			subtree = map[string]any{}
 		}
-		return subtree, true, full
+		return subtree, true, full, nil
 	}
 
-	return map[string]any{}, false, map[string]any{}
+	return map[string]any{}, false, map[string]any{}, nil
 }
 
 // ── Render + write ──────────────────────────────────────────────────
@@ -453,7 +460,10 @@ func planInternal(configDir, secretsDir string) (*PlanResult, error) {
 			desired = buildDesiredMCPServers(agentName, registry, envValues)
 		}
 
-		current, exists, full := currentSubtree(agentName, spec)
+		current, exists, full, err := currentSubtree(agentName, spec)
+		if err != nil {
+			return nil, fmt.Errorf("current state for %s: %w", agentName, err)
+		}
 		changed := normalize(current) != normalize(desired)
 
 		resultAgents = append(resultAgents, PlanAgent{
@@ -692,19 +702,31 @@ func Apply(configDir, secretsDir, stateDir string, breakGlass bool, reason, acto
 
 	if applyErr != nil {
 		// Rollback files that were changed in this run
+		var rollbackErrors []string
 		for i := len(backupMeta) - 1; i >= 0; i-- {
 			meta := backupMeta[i]
 			if meta.PreExists && meta.Snapshot != "" {
-				_ = tx.EnsureParent(meta.Path)
-				_ = tx.CopyFile(meta.Snapshot, meta.Path)
+				if err := tx.EnsureParent(meta.Path); err != nil {
+					rollbackErrors = append(rollbackErrors, fmt.Sprintf("ensure parent %s: %v", meta.Path, err))
+				}
+				if err := tx.CopyFile(meta.Snapshot, meta.Path); err != nil {
+					rollbackErrors = append(rollbackErrors, fmt.Sprintf("restore %s: %v", meta.Path, err))
+				}
 			} else {
-				_ = os.Remove(meta.Path)
+				if err := os.Remove(meta.Path); err != nil && !os.IsNotExist(err) {
+					rollbackErrors = append(rollbackErrors, fmt.Sprintf("remove %s: %v", meta.Path, err))
+				}
 			}
 		}
 
-		result.Result = "rolled_back"
+		if len(rollbackErrors) > 0 {
+			result.Result = "partial_rollback"
+			result.Error = applyErr.Error() + "; rollback errors: " + strings.Join(rollbackErrors, "; ")
+		} else {
+			result.Result = "rolled_back"
+			result.Error = applyErr.Error()
+		}
 		result.Severity = "critical"
-		result.Error = applyErr.Error()
 
 		// Write manifest even on failure
 		manifestPath := filepath.Join(stateDir, "runs", runID+".json")
@@ -741,6 +763,7 @@ type RollbackResult struct {
 	Result       string         `json:"result"`
 	Severity     string         `json:"severity"`
 	ChangedFiles []RollbackFile `json:"changed_files"`
+	Error        string         `json:"error,omitempty"`
 }
 
 // ToMap converts RollbackResult to a generic map for JSON serialization.
@@ -753,7 +776,7 @@ func (rr *RollbackResult) ToMap() map[string]any {
 			"restored_from": f.RestoredFrom,
 		})
 	}
-	return map[string]any{
+	m := map[string]any{
 		"run_id":         rr.RunID,
 		"timestamp":      rr.Timestamp,
 		"actor":          rr.Actor,
@@ -763,6 +786,10 @@ func (rr *RollbackResult) ToMap() map[string]any {
 		"severity":       rr.Severity,
 		"changed_files":  files,
 	}
+	if rr.Error != "" {
+		m["error"] = rr.Error
+	}
+	return m
 }
 
 // Rollback restores agent configs from a previous run's snapshots.
@@ -810,6 +837,7 @@ func Rollback(stateDir, runID, agent, actor string) (*RollbackResult, error) {
 		_ = tx.WriteJSONAtomic(manifestPath, result.ToMap())
 	}()
 
+	var rollbackErrors []string
 	for _, meta := range changes {
 		metaAgent, _ := meta["agent"].(string)
 		if agent != "" && metaAgent != agent {
@@ -821,10 +849,16 @@ func Rollback(stateDir, runID, agent, actor string) (*RollbackResult, error) {
 		snapshot, _ := meta["snapshot"].(string)
 
 		if preExists && snapshot != "" {
-			_ = tx.EnsureParent(path)
-			_ = tx.CopyFile(snapshot, path)
+			if err := tx.EnsureParent(path); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Sprintf("ensure parent %s: %v", path, err))
+			}
+			if err := tx.CopyFile(snapshot, path); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Sprintf("restore %s: %v", path, err))
+			}
 		} else {
-			_ = os.Remove(path)
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				rollbackErrors = append(rollbackErrors, fmt.Sprintf("remove %s: %v", path, err))
+			}
 		}
 
 		result.ChangedFiles = append(result.ChangedFiles, RollbackFile{
@@ -832,6 +866,11 @@ func Rollback(stateDir, runID, agent, actor string) (*RollbackResult, error) {
 			Path:         path,
 			RestoredFrom: snapshot,
 		})
+	}
+
+	if len(rollbackErrors) > 0 {
+		result.Result = "partial_rollback"
+		result.Error = "rollback errors: " + strings.Join(rollbackErrors, "; ")
 	}
 
 	return result, nil
