@@ -1,0 +1,19 @@
+{
+  "agents": {
+    "claude-code": {
+      "compose": ["shared.md", "claude-code.md"],
+      "target": "~/.claude/CLAUDE.md",
+      "separator": "\n\n"
+    },
+    "gemini-cli": {
+      "compose": ["shared.md", "gemini-cli.md"],
+      "target": "~/.gemini/GEMINI.md",
+      "separator": "\n\n"
+    },
+    "codex": {
+      "compose": ["shared.md", "codex.md"],
+      "target": "~/.codex/instructions.md",
+      "separator": "\n\n"
+    }
+  }
+}

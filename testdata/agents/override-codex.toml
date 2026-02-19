@@ -1,0 +1,16 @@
+[agent]
+name = "codex"
+aliases = ["cx"]
+display_order = 2
+
+[mcp]
+file_type = "codex_toml"
+path = "~/.codex-custom/config.toml"
+inject_key = "mcp_servers"
+managed_keys = ["mcp_servers"]
+
+[hooks]
+format = "codex_notify"
+
+[skills]
+target_dir = "~/.codex-custom/skills"

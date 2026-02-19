@@ -1,0 +1,18 @@
+{
+  "patterns": [
+    "node_modules",
+    ".env",
+    ".env.*",
+    "*.log",
+    ".git",
+    "__pycache__",
+    ".venv",
+    "dist",
+    "build"
+  ],
+  "agents": {
+    "claude-code": {
+      "target": "~/.claude/.claudeignore"
+    }
+  }
+}

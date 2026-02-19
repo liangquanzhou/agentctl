@@ -1,0 +1,13 @@
+[agent]
+name = "cursor"
+aliases = ["cur"]
+display_order = 10
+
+[mcp]
+file_type = "json"
+path = "~/.cursor/mcp.json"
+inject_key = "mcpServers"
+managed_keys = ["mcpServers"]
+
+[skills]
+target_dir = "~/.cursor/skills"

@@ -1,0 +1,7 @@
+{
+  "agents": {
+    "claude-code": {
+      "target_dir": "~/.claude/commands"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "agents": {
+    "claude-code": {
+      "target": "~/.claude/settings.json",
+      "format": "claude_hooks",
+      "events": {
+        "SessionEnd": [
+          {
+            "type": "command",
+            "command": "/Users/didi/.claude/hooks/.venv/bin/python3 /Users/didi/.claude/hooks/auto-memory.py",
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "kg-memory-mcp hooks run {{agent}}"
+          }
+        ]
+      }
+    },
+    "gemini-cli": {
+      "target": "~/.gemini/settings.json",
+      "format": "gemini_hooks",
+      "events": {
+        "SessionEnd": [
+          {
+            "type": "command",
+            "command": "kg-memory-mcp hooks run {{agent}}"
+          }
+        ]
+      }
+    },
+    "codex": {
+      "target": "~/.codex/config.toml",
+      "format": "codex_notify",
+      "notify": ["kg-memory-mcp", "hooks", "run", "{{agent}}"]
+    }
+  }
+}
