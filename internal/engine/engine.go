@@ -66,82 +66,9 @@ func loadRegistry(configDir string) (map[string]map[string]any, error) {
 
 // ── Env loading ─────────────────────────────────────────────────────
 
-// loadEnvValues reads .env files from secretsDir and merges with shell env.
-// Shell environment takes priority over .env file values.
+// loadEnvValues delegates to tx.LoadEnvValues.
 func loadEnvValues(secretsDir string) map[string]string {
-	values := make(map[string]string)
-
-	info, err := os.Stat(secretsDir)
-	if err != nil || !info.IsDir() {
-		return values
-	}
-
-	// Read *.env files sorted by name
-	entries, err := os.ReadDir(secretsDir)
-	if err != nil {
-		return values
-	}
-
-	var envFiles []string
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".env") {
-			envFiles = append(envFiles, filepath.Join(secretsDir, entry.Name()))
-		}
-	}
-	sort.Strings(envFiles)
-
-	for _, path := range envFiles {
-		parsed := parseEnvFile(path)
-		for k, v := range parsed {
-			values[k] = v
-		}
-	}
-
-	// Shell environment has higher priority
-	for _, kv := range os.Environ() {
-		idx := strings.IndexByte(kv, '=')
-		if idx < 0 {
-			continue
-		}
-		values[kv[:idx]] = kv[idx+1:]
-	}
-
-	return values
-}
-
-// parseEnvFile is a simple .env parser: key=value lines, # comments, empty lines ignored.
-func parseEnvFile(path string) map[string]string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-
-	result := make(map[string]string)
-	for _, rawLine := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		idx := strings.IndexByte(line, '=')
-		if idx < 0 {
-			continue
-		}
-		key := strings.TrimSpace(line[:idx])
-		val := strings.TrimSpace(line[idx+1:])
-
-		// Strip surrounding quotes if present
-		if len(val) >= 2 {
-			if (val[0] == '"' && val[len(val)-1] == '"') ||
-				(val[0] == '\'' && val[len(val)-1] == '\'') {
-				val = val[1 : len(val)-1]
-			}
-		}
-
-		if key != "" {
-			result[key] = val
-		}
-	}
-	return result
+	return tx.LoadEnvValues(secretsDir)
 }
 
 // ── Server resolution ───────────────────────────────────────────────
@@ -744,6 +671,25 @@ func Apply(configDir, secretsDir, stateDir string, breakGlass bool, reason, acto
 	return result, nil
 }
 
+// ── Run ID validation ────────────────────────────────────────────────
+
+// validateRunID ensures a run ID contains only safe characters
+// (alphanumeric, dash, underscore) and is non-empty with no ".." sequences.
+func validateRunID(runID string) error {
+	if runID == "" {
+		return fmt.Errorf("invalid run_id: %q", runID)
+	}
+	if strings.Contains(runID, "..") {
+		return fmt.Errorf("invalid run_id: %q", runID)
+	}
+	for _, c := range runID {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return fmt.Errorf("invalid run_id: %q (only alphanumeric, dash, underscore allowed)", runID)
+		}
+	}
+	return nil
+}
+
 // ── Rollback ────────────────────────────────────────────────────────
 
 // RollbackFile records a single file restoration during rollback.
@@ -795,6 +741,10 @@ func (rr *RollbackResult) ToMap() map[string]any {
 // Rollback restores agent configs from a previous run's snapshots.
 // If agent is non-empty, only that agent's files are rolled back.
 func Rollback(stateDir, runID, agent, actor string) (*RollbackResult, error) {
+	if err := validateRunID(runID); err != nil {
+		return nil, err
+	}
+
 	if err := tx.EnsureStateDirs(stateDir); err != nil {
 		return nil, fmt.Errorf("ensure state dirs: %w", err)
 	}
@@ -837,6 +787,9 @@ func Rollback(stateDir, runID, agent, actor string) (*RollbackResult, error) {
 		_ = tx.WriteJSONAtomic(manifestPath, result.ToMap())
 	}()
 
+	// Validate snapshot paths are under the expected snapshots directory.
+	expectedPrefix := filepath.Join(stateDir, "snapshots") + string(filepath.Separator)
+
 	var rollbackErrors []string
 	for _, meta := range changes {
 		metaAgent, _ := meta["agent"].(string)
@@ -847,6 +800,12 @@ func Rollback(stateDir, runID, agent, actor string) (*RollbackResult, error) {
 		path, _ := meta["path"].(string)
 		preExists, _ := meta["pre_exists"].(bool)
 		snapshot, _ := meta["snapshot"].(string)
+
+		// Security: ensure snapshot path is under state_dir/snapshots/
+		if snapshot != "" && !strings.HasPrefix(filepath.Clean(snapshot), expectedPrefix) {
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf("snapshot path outside expected dir: %s", snapshot))
+			continue
+		}
 
 		if preExists && snapshot != "" {
 			if err := tx.EnsureParent(path); err != nil {
@@ -932,6 +891,9 @@ func ListRuns(stateDir string) []map[string]any {
 
 // ShowRun reads a single run manifest by its ID.
 func ShowRun(stateDir, runID string) (map[string]any, error) {
+	if err := validateRunID(runID); err != nil {
+		return nil, err
+	}
 	return tx.ReadJSON(filepath.Join(stateDir, "runs", runID+".json"))
 }
 

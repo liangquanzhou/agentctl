@@ -389,7 +389,8 @@ func hashFile(path string) string {
 
 // hashDir computes a composite SHA-256 over an entire directory tree.
 // It sorts all file paths, then hashes the concatenation of each relative
-// path and its file hash.
+// path and its file hash. Symlinks are skipped to prevent following them
+// to unexpected locations.
 func hashDir(dir string) string {
 	type entry struct {
 		rel  string
@@ -401,6 +402,9 @@ func hashDir(dir string) string {
 	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip errors
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil // skip symlinks
 		}
 		if d.IsDir() {
 			return nil
@@ -428,7 +432,8 @@ func hashDir(dir string) string {
 }
 
 // replaceTree removes dst (if it exists) and copies the entire src tree into dst.
-// If dryRun is true, no filesystem changes are made.
+// If dryRun is true, no filesystem changes are made. Symlinks are skipped to
+// prevent following them to unexpected locations.
 func replaceTree(src, dst string, dryRun bool) error {
 	if dryRun {
 		return nil
@@ -443,6 +448,11 @@ func replaceTree(src, dst string, dryRun bool) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// Skip symlinks to prevent following them to unexpected locations.
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
 		}
 
 		rel, relErr := filepath.Rel(src, path)

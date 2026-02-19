@@ -31,6 +31,7 @@ func newContentPlanCmd() *cobra.Command {
 			output, _ := cmd.Flags().GetString("output")
 			scope, _ := cmd.Flags().GetString("scope")
 			projectDir, _ := cmd.Flags().GetString("project-dir")
+			changedOnly, _ := cmd.Flags().GetBool("changed-only")
 
 			if scope == "project" && projectDir == "" {
 				cwd, _ := os.Getwd()
@@ -46,6 +47,10 @@ func newContentPlanCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
+			if changedOnly {
+				data = filterContentChanged(data)
+			}
+
 			if output == "json" {
 				PrintJSON(data)
 				return nil
@@ -57,6 +62,7 @@ func newContentPlanCmd() *cobra.Command {
 	cmd.Flags().String("output", "text", "Output format: text|json")
 	cmd.Flags().String("scope", "global", "Scope: global|project")
 	cmd.Flags().String("project-dir", "", "Project directory for project scope")
+	cmd.Flags().Bool("changed-only", false, "Only show changed items")
 	return cmd
 }
 
@@ -102,16 +108,23 @@ func newContentApplyCmd() *cobra.Command {
 }
 
 func newContentStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Check content drift",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configDir, _ := cmd.Flags().GetString("config-dir")
+			changedOnly, _ := cmd.Flags().GetBool("changed-only")
+
 			data, err := content.ContentPlan(configDir, content.PlanOpts{})
 			if err != nil {
 				fmt.Println(red("content status failed") + ": " + err.Error())
 				os.Exit(1)
 			}
+
+			if changedOnly {
+				data = filterContentChanged(data)
+			}
+
 			printContentPlanTable(data)
 			if changed := countMapChangedItems(data); changed > 0 {
 				fmt.Printf("%s: %d item(s)\n", yellow("Drift detected"), changed)
@@ -121,6 +134,8 @@ func newContentStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("changed-only", false, "Only show changed items")
+	return cmd
 }
 
 // ── Content type sub-commands (rules/hooks/commands/ignore) ──────────
@@ -138,11 +153,16 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configDir, _ := cmd.Flags().GetString("config-dir")
 			output, _ := cmd.Flags().GetString("output")
+			changedOnly, _ := cmd.Flags().GetBool("changed-only")
 
 			data, err := content.ContentPlan(configDir, content.PlanOpts{TypeFilter: typeName})
 			if err != nil {
 				fmt.Println(red(typeName+" plan failed") + ": " + err.Error())
 				os.Exit(1)
+			}
+
+			if changedOnly {
+				data = filterContentChanged(data)
 			}
 
 			if output == "json" {
@@ -154,6 +174,7 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 		},
 	}
 	planCmd.Flags().String("output", "text", "Output format: text|json")
+	planCmd.Flags().Bool("changed-only", false, "Only show changed items")
 
 	// apply
 	applyCmd := &cobra.Command{
@@ -190,11 +211,18 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 		Short: "Check " + typeName + " drift",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configDir, _ := cmd.Flags().GetString("config-dir")
+			changedOnly, _ := cmd.Flags().GetBool("changed-only")
+
 			data, err := content.ContentPlan(configDir, content.PlanOpts{TypeFilter: typeName})
 			if err != nil {
 				fmt.Println(red(typeName+" status failed") + ": " + err.Error())
 				os.Exit(1)
 			}
+
+			if changedOnly {
+				data = filterContentChanged(data)
+			}
+
 			printContentPlanTable(data)
 			if changed := countMapChangedItems(data); changed > 0 {
 				fmt.Printf("%s: %d %s item(s)\n", yellow("Drift detected"), changed, typeName)
@@ -204,7 +232,31 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 			return nil
 		},
 	}
+	statusCmd.Flags().Bool("changed-only", false, "Only show changed items")
 
 	cmd.AddCommand(planCmd, applyCmd, statusCmd)
 	return cmd
+}
+
+// filterContentChanged returns a copy of the plan data with only changed items.
+func filterContentChanged(data map[string]any) map[string]any {
+	items, ok := data["items"].([]map[string]any)
+	if !ok {
+		return data
+	}
+	var filtered []map[string]any
+	for _, item := range items {
+		if c, _ := item["changed"].(bool); c {
+			filtered = append(filtered, item)
+		}
+	}
+	if filtered == nil {
+		filtered = []map[string]any{}
+	}
+	result := make(map[string]any, len(data))
+	for k, v := range data {
+		result[k] = v
+	}
+	result["items"] = filtered
+	return result
 }

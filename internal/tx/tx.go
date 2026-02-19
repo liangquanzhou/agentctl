@@ -12,6 +12,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -331,6 +333,97 @@ func EnsureStateDirs(stateDir string) error {
 		}
 	}
 	return nil
+}
+
+// ── Env loading ──────────────────────────────────────────────────────
+
+// LoadEnvValues reads *.env files from secretsDir (sorted by name), parses
+// KEY=VALUE lines (skipping comments and blanks, supporting "export " prefix),
+// then merges os.Environ() on top. Shell environment takes priority.
+func LoadEnvValues(secretsDir string) map[string]string {
+	values := make(map[string]string)
+
+	info, err := os.Stat(secretsDir)
+	if err != nil || !info.IsDir() {
+		// Still merge shell env even if secretsDir is missing.
+		for _, kv := range os.Environ() {
+			idx := strings.IndexByte(kv, '=')
+			if idx < 0 {
+				continue
+			}
+			values[kv[:idx]] = kv[idx+1:]
+		}
+		return values
+	}
+
+	entries, err := os.ReadDir(secretsDir)
+	if err != nil {
+		return values
+	}
+
+	var envFiles []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".env") {
+			envFiles = append(envFiles, filepath.Join(secretsDir, entry.Name()))
+		}
+	}
+	sort.Strings(envFiles)
+
+	for _, path := range envFiles {
+		parsed := ParseEnvFile(path)
+		for k, v := range parsed {
+			values[k] = v
+		}
+	}
+
+	// Shell environment has higher priority.
+	for _, kv := range os.Environ() {
+		idx := strings.IndexByte(kv, '=')
+		if idx < 0 {
+			continue
+		}
+		values[kv[:idx]] = kv[idx+1:]
+	}
+
+	return values
+}
+
+// ParseEnvFile is a .env parser: key=value lines, # comments, empty lines
+// ignored. Supports "export KEY=VALUE" syntax and surrounding quotes.
+func ParseEnvFile(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+
+	result := make(map[string]string)
+	for _, rawLine := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Support "export KEY=VALUE" syntax.
+		line = strings.TrimPrefix(line, "export ")
+		idx := strings.IndexByte(line, '=')
+		if idx < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:idx])
+		val := strings.TrimSpace(line[idx+1:])
+
+		// Strip surrounding quotes if present.
+		if len(val) >= 2 {
+			if (val[0] == '"' && val[len(val)-1] == '"') ||
+				(val[0] == '\'' && val[len(val)-1] == '\'') {
+				val = val[1 : len(val)-1]
+			}
+		}
+
+		if key != "" {
+			result[key] = val
+		}
+	}
+	return result
 }
 
 // ── JSON helpers ─────────────────────────────────────────────────────

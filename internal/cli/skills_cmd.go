@@ -54,6 +54,11 @@ func newSkillsStatusCmd() *cobra.Command {
 			sourceDir := getSkillsSource(cmd)
 			targets := getSkillsTargets(cmd)
 			output, _ := cmd.Flags().GetString("output")
+			targetFilter, _ := cmd.Flags().GetString("target")
+
+			if targetFilter != "" {
+				targets = filterSkillsTargets(targets, targetFilter)
+			}
 
 			data := skills.SkillsStatus(sourceDir, targets)
 
@@ -85,6 +90,7 @@ func newSkillsStatusCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("output", "text", "Output format: text|json")
+	cmd.Flags().String("target", "", "Filter to specific target (claude|codex|gemini|antigravity|opencode)")
 	addSkillsFlags(cmd)
 	return cmd
 }
@@ -97,6 +103,7 @@ func newSkillsSyncCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("dry-run", false, "Dry run mode")
 	cmd.Flags().String("output", "text", "Output format: text|json")
+	cmd.Flags().String("target", "", "Filter to specific target (claude|codex|gemini|antigravity|opencode)")
 	addSkillsFlags(cmd)
 	return cmd
 }
@@ -107,6 +114,11 @@ func runSkillsSync(cmd *cobra.Command, args []string) error {
 	targets := getSkillsTargets(cmd)
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	output, _ := cmd.Flags().GetString("output")
+	targetFilter, _ := cmd.Flags().GetString("target")
+
+	if targetFilter != "" {
+		targets = filterSkillsTargets(targets, targetFilter)
+	}
 
 	data := skills.SkillsSync(sourceDir, targets, stateDir, dryRun)
 
@@ -143,6 +155,7 @@ func newSkillsApplyCmd() *cobra.Command {
 	}
 	cmd.Flags().Bool("dry-run", false, "Dry run mode")
 	cmd.Flags().String("output", "text", "Output format: text|json")
+	cmd.Flags().String("target", "", "Filter to specific target (claude|codex|gemini|antigravity|opencode)")
 	addSkillsFlags(cmd)
 	return cmd
 }
@@ -194,4 +207,12 @@ func newSkillsPullCmd() *cobra.Command {
 	cmd.Flags().String("output", "text", "Output format: text|json")
 	addSkillsFlags(cmd)
 	return cmd
+}
+
+// filterSkillsTargets returns a subset of targets matching the given target name.
+func filterSkillsTargets(targets map[string]string, target string) map[string]string {
+	if dir, ok := targets[target]; ok {
+		return map[string]string{target: dir}
+	}
+	return map[string]string{}
 }

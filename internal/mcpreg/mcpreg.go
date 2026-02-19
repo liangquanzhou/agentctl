@@ -12,6 +12,7 @@ package mcpreg
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -311,6 +312,87 @@ func MCPRm(configDir, name string, opts RmOpts) (map[string]any, error) {
 		"targets":        targets,
 		"changed_agents": changedAgents,
 		"from_list":      opts.FromList,
+	}, nil
+}
+
+// MCPCheck validates that each server's command is executable and that all
+// envRef variables are resolvable from the secrets directory + environment.
+//
+// The returned map has the shape:
+//
+//	{
+//	  "servers": [ { "name", "command", "command_ok", "envRef_missing" }, ... ],
+//	  "all_ok": bool,
+//	}
+func MCPCheck(configDir, secretsDir string) (map[string]any, error) {
+	servers, _, _, err := loadRegistryTriplet(configDir)
+	if err != nil {
+		return nil, err
+	}
+
+	envValues := tx.LoadEnvValues(secretsDir)
+	serverSpecs := getMapOrEmpty(servers, "servers")
+	sortedNames := sortedKeys(serverSpecs)
+
+	allOK := true
+	rows := make([]any, 0, len(sortedNames))
+
+	for _, name := range sortedNames {
+		specRaw := serverSpecs[name]
+		spec, _ := specRaw.(map[string]any)
+		if spec == nil {
+			spec = make(map[string]any)
+		}
+
+		command := tx.GetString(spec, "command", "")
+
+		// Check if command is executable.
+		commandOK := false
+		if command != "" {
+			if filepath.IsAbs(command) {
+				// Absolute path: check if file exists and is executable.
+				info, err := os.Stat(command)
+				if err == nil && !info.IsDir() {
+					// Check if any execute bit is set.
+					if info.Mode()&0o111 != 0 {
+						commandOK = true
+					}
+				}
+			} else {
+				// Relative: use LookPath to find in PATH.
+				if _, err := exec.LookPath(command); err == nil {
+					commandOK = true
+				}
+			}
+		}
+
+		// Check envRef resolution.
+		envRefSlice := tx.GetStringSlice(spec, "envRef")
+		var missing []any
+		for _, key := range envRefSlice {
+			if _, ok := envValues[key]; !ok {
+				missing = append(missing, key)
+			}
+		}
+		if missing == nil {
+			missing = []any{}
+		}
+
+		if !commandOK || len(missing) > 0 {
+			allOK = false
+		}
+
+		rows = append(rows, map[string]any{
+			"name":           name,
+			"command":        command,
+			"command_ok":     commandOK,
+			"envRef_missing": missing,
+		})
+	}
+
+	return map[string]any{
+		"servers": rows,
+		"all_ok":  allOK,
 	}, nil
 }
 

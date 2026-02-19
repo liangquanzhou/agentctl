@@ -21,6 +21,7 @@ func newMCPCmd() *cobra.Command {
 	cmd.AddCommand(newMCPListCmd())
 	cmd.AddCommand(newMCPAddCmd())
 	cmd.AddCommand(newMCPRmCmd())
+	cmd.AddCommand(newMCPCheckCmd())
 	return cmd
 }
 
@@ -32,11 +33,17 @@ func newMCPPlanCmd() *cobra.Command {
 			configDir, _ := cmd.Flags().GetString("config-dir")
 			secretsDir, _ := cmd.Flags().GetString("secrets-dir")
 			output, _ := cmd.Flags().GetString("output")
+			changedOnly, _ := cmd.Flags().GetBool("changed-only")
 
 			result, err := engine.Plan(configDir, secretsDir)
 			if err != nil {
 				return err
 			}
+
+			if changedOnly {
+				result = filterEnginePlanChanged(result)
+			}
+
 			if output == "json" {
 				PrintJSON(result.ToMap())
 				return nil
@@ -46,19 +53,23 @@ func newMCPPlanCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().String("output", "text", "Output format: text|json")
+	cmd.Flags().Bool("changed-only", false, "Only show changed agents")
 	return cmd
 }
 
 func newMCPStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Check MCP configuration drift",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configDir, _ := cmd.Flags().GetString("config-dir")
 			secretsDir, _ := cmd.Flags().GetString("secrets-dir")
-			return runEngineMCPStatus(configDir, secretsDir)
+			changedOnly, _ := cmd.Flags().GetBool("changed-only")
+			return runEngineMCPStatusFiltered(configDir, secretsDir, changedOnly)
 		},
 	}
+	cmd.Flags().Bool("changed-only", false, "Only show changed agents")
+	return cmd
 }
 
 func newMCPApplyCmd() *cobra.Command {
@@ -268,6 +279,78 @@ func newMCPRmCmd() *cobra.Command {
 	return cmd
 }
 
+func newMCPCheckCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "check",
+		Short: "Preflight check: validate commands and env references",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			configDir, _ := cmd.Flags().GetString("config-dir")
+			secretsDir, _ := cmd.Flags().GetString("secrets-dir")
+			output, _ := cmd.Flags().GetString("output")
+
+			data, err := mcpreg.MCPCheck(configDir, secretsDir)
+			if err != nil {
+				fmt.Println(red("mcp check failed") + ": " + err.Error())
+				os.Exit(1)
+			}
+
+			if output == "json" {
+				PrintJSON(data)
+			} else {
+				printMCPCheckTable(data)
+			}
+
+			allOK, _ := data["all_ok"].(bool)
+			if !allOK {
+				os.Exit(1)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().String("output", "text", "Output format: text|json")
+	return cmd
+}
+
+func printMCPCheckTable(data map[string]any) {
+	headers := []string{"Server", "Command", "Cmd OK", "Missing Env"}
+	var rows [][]string
+
+	serversList, _ := data["servers"].([]any)
+	for _, srv := range serversList {
+		row, _ := srv.(map[string]any)
+		if row == nil {
+			continue
+		}
+
+		cmdOK := "no"
+		if ok, _ := row["command_ok"].(bool); ok {
+			cmdOK = "yes"
+		}
+
+		var missing []string
+		if m, ok := row["envRef_missing"].([]any); ok {
+			for _, v := range m {
+				missing = append(missing, fmt.Sprint(v))
+			}
+		}
+
+		rows = append(rows, []string{
+			fmt.Sprint(row["name"]),
+			fmt.Sprint(row["command"]),
+			cmdOK,
+			joinStrings(missing, ", "),
+		})
+	}
+	PrintTable("MCP Check", headers, rows)
+
+	allOK, _ := data["all_ok"].(bool)
+	if allOK {
+		fmt.Println(green("All checks passed"))
+	} else {
+		fmt.Println(red("Some checks failed"))
+	}
+}
+
 func joinStrings(s []string, sep string) string {
 	result := ""
 	for i, v := range s {
@@ -277,4 +360,46 @@ func joinStrings(s []string, sep string) string {
 		result += v
 	}
 	return result
+}
+
+// filterEnginePlanChanged returns a copy of PlanResult with only changed agents.
+func filterEnginePlanChanged(result *engine.PlanResult) *engine.PlanResult {
+	var filtered []engine.PlanAgent
+	for _, a := range result.Agents {
+		if a.Changed {
+			filtered = append(filtered, a)
+		}
+	}
+	return &engine.PlanResult{
+		GeneratedAt: result.GeneratedAt,
+		ConfigDir:   result.ConfigDir,
+		SecretsDir:  result.SecretsDir,
+		Agents:      filtered,
+	}
+}
+
+// runEngineMCPStatusFiltered runs MCP status with optional changed-only filter.
+func runEngineMCPStatusFiltered(configDir, secretsDir string, changedOnly bool) error {
+	result, err := engine.Plan(configDir, secretsDir)
+	if err != nil {
+		return err
+	}
+
+	if changedOnly {
+		result = filterEnginePlanChanged(result)
+	}
+
+	printEnginePlanTable(result)
+	changed := 0
+	for _, a := range result.Agents {
+		if a.Changed {
+			changed++
+		}
+	}
+	if changed > 0 {
+		fmt.Printf("%s: %d agent(s)\n", yellow("Drift detected"), changed)
+		os.Exit(1)
+	}
+	fmt.Println(green("Healthy") + ": no MCP drift")
+	return nil
 }

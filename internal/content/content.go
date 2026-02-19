@@ -218,51 +218,80 @@ func buildIgnoreContent(patterns []string) string {
 // ── Directory sync helpers ───────────────────────────────────────────
 
 // dirSyncPlan compares source dir files with target dir; returns per-file plan items.
+// It also detects stale files in target that no longer exist in source.
 func dirSyncPlan(sourceDir, targetDir, agent, itemType string) []map[string]any {
 	var items []map[string]any
 
-	if _, err := os.Stat(sourceDir); os.IsNotExist(err) {
-		return items
+	// Track source file names to detect stale targets later.
+	sourceNames := make(map[string]bool)
+
+	if _, err := os.Stat(sourceDir); !os.IsNotExist(err) {
+		entries, err := os.ReadDir(sourceDir)
+		if err == nil {
+			// Sort entries for deterministic output
+			sort.Slice(entries, func(i, j int) bool {
+				return entries[i].Name() < entries[j].Name()
+			})
+
+			for _, entry := range entries {
+				if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "config.json" {
+					continue
+				}
+				sourceNames[entry.Name()] = true
+				srcFile := filepath.Join(sourceDir, entry.Name())
+				tgtFile := filepath.Join(targetDir, entry.Name())
+
+				desired, err := os.ReadFile(srcFile)
+				if err != nil {
+					continue
+				}
+
+				var current []byte
+				tgtExists := false
+				if _, statErr := os.Stat(tgtFile); statErr == nil {
+					tgtExists = true
+					current, _ = os.ReadFile(tgtFile)
+				}
+
+				items = append(items, map[string]any{
+					"agent":   agent,
+					"type":    itemType,
+					"path":    tgtFile,
+					"source":  srcFile,
+					"exists":  tgtExists,
+					"changed": string(current) != string(desired),
+				})
+			}
+		}
 	}
 
-	entries, err := os.ReadDir(sourceDir)
-	if err != nil {
-		return items
+	// Detect stale files: files in target that are not in source.
+	if _, err := os.Stat(targetDir); !os.IsNotExist(err) {
+		tgtEntries, err := os.ReadDir(targetDir)
+		if err == nil {
+			sort.Slice(tgtEntries, func(i, j int) bool {
+				return tgtEntries[i].Name() < tgtEntries[j].Name()
+			})
+
+			for _, entry := range tgtEntries {
+				if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "config.json" {
+					continue
+				}
+				if !sourceNames[entry.Name()] {
+					tgtFile := filepath.Join(targetDir, entry.Name())
+					items = append(items, map[string]any{
+						"agent":   agent,
+						"type":    itemType,
+						"path":    tgtFile,
+						"exists":  true,
+						"changed": true,
+						"stale":   true,
+					})
+				}
+			}
+		}
 	}
 
-	// Sort entries for deterministic output
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
-	})
-
-	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "config.json" {
-			continue
-		}
-		srcFile := filepath.Join(sourceDir, entry.Name())
-		tgtFile := filepath.Join(targetDir, entry.Name())
-
-		desired, err := os.ReadFile(srcFile)
-		if err != nil {
-			continue
-		}
-
-		var current []byte
-		tgtExists := false
-		if _, statErr := os.Stat(tgtFile); statErr == nil {
-			tgtExists = true
-			current, _ = os.ReadFile(tgtFile)
-		}
-
-		items = append(items, map[string]any{
-			"agent":   agent,
-			"type":    itemType,
-			"path":    tgtFile,
-			"source":  srcFile,
-			"exists":  tgtExists,
-			"changed": string(current) != string(desired),
-		})
-	}
 	return items
 }
 
@@ -1046,8 +1075,12 @@ func applyHookChange(hooksCfg map[string]any, agent, path string) error {
 	return tx.WriteJSONAtomic(path, full)
 }
 
-// applyCommandChange copies a command source file to the target path.
+// applyCommandChange copies a command source file to the target path,
+// or deletes the target if the item is stale (no longer in source).
 func applyCommandChange(item map[string]any, path string) error {
+	if tx.GetBool(item, "stale", false) {
+		return os.Remove(path)
+	}
 	source := tx.GetString(item, "source", "")
 	if source == "" {
 		return fmt.Errorf("missing source for command item")
