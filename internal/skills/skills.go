@@ -151,6 +151,9 @@ func SkillsStatus(sourceDir string, targets map[string]string) map[string]any {
 // H4: Acquires exclusive lock on managed.json + target trees.
 // M4: Returns errors via the result map "errors" key and as a second return value.
 func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dryRun bool) map[string]any {
+	// Note: $HOME validation is enforced at config load time in agents.go.
+	// Runtime checks here focus on symlink rejection before destructive ops.
+
 	// H4: Acquire exclusive lock
 	skillsStateDir := filepath.Join(stateDir, "skills")
 	if err := os.MkdirAll(skillsStateDir, 0o755); err != nil {
@@ -235,6 +238,11 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 			staleDir := filepath.Join(tgtDir, name)
 			if _, err := os.Stat(staleDir); err == nil {
 				if !dryRun {
+					// Reject symlink before destructive removal
+					if symErr := tx.RejectSymlink(staleDir); symErr != nil {
+						syncErrors = append(syncErrors, fmt.Sprintf("%s/%s: %v", tgtName, name, symErr))
+						continue
+					}
 					os.RemoveAll(staleDir)
 				}
 				removed = append(removed, name)
@@ -306,6 +314,8 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 // SkillsPull copies skills from a target directory back into the source.
 // New skills are created; existing ones are updated only if overwrite is true.
 func SkillsPull(sourceDir, targetName, targetDir string, dryRun, overwrite bool) (map[string]any, error) {
+	// Note: $HOME validation is enforced at config load time in agents.go.
+
 	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
 		return nil, fmt.Errorf("target directory does not exist: %s", targetDir)
 	}
@@ -471,6 +481,11 @@ func replaceTree(src, dst string, dryRun bool) error {
 		return nil
 	}
 
+	// Reject symlinked destination to prevent redirect attacks.
+	if err := tx.RejectSymlink(dst); err != nil {
+		return fmt.Errorf("symlink check %s: %w", dst, err)
+	}
+
 	// Remove existing destination.
 	if err := os.RemoveAll(dst); err != nil {
 		return fmt.Errorf("remove %s: %w", dst, err)
@@ -501,7 +516,8 @@ func replaceTree(src, dst string, dryRun bool) error {
 	})
 }
 
-// copyFile copies a single file from src to dst, preserving permissions.
+// copyFile copies a single file from src to dst atomically (temp+rename),
+// preserving permissions.
 func copyFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
@@ -518,16 +534,36 @@ func copyFile(src, dst string) error {
 		return err
 	}
 
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+	// Write to temp file in same directory, then rename for atomicity.
+	tmpFile, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".*")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	tmpPath := tmpFile.Name()
 
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := io.Copy(tmpFile, in); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
 		return err
 	}
-	return out.Sync()
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Chmod(tmpPath, info.Mode()); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, dst); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 // ── Managed state persistence ────────────────────────────────────────

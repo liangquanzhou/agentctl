@@ -692,10 +692,11 @@ func writeRegistryTriplet(mcpDir string, servers, profiles, compat map[string]an
 	for i, f := range files {
 		path := filepath.Join(mcpDir, f.name)
 		if err := tx.WriteJSONAtomic(path, f.data); err != nil {
-			// Rollback previously written files
+			// Rollback previously written files using atomic restore
 			for j := i - 1; j >= 0; j-- {
 				if backups[j].existed {
-					os.WriteFile(backups[j].path, backups[j].content, 0o644)
+					// Use atomic write for rollback restore
+					tx.WriteTextAtomic(backups[j].path, string(backups[j].content))
 				} else {
 					os.Remove(backups[j].path)
 				}

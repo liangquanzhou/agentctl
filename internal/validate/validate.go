@@ -164,12 +164,6 @@ func ValidateConfig(configDir string) (bool, []string) {
 		}
 	}
 
-	// L1: legacy content.json detection warning
-	legacyContentPath := filepath.Join(configDir, "registry", "content.json")
-	if _, err := os.Stat(legacyContentPath); err == nil {
-		errors = append(errors, fmt.Sprintf("legacy registry/content.json detected at %s; migrate to split config", legacyContentPath))
-	}
-
 	return len(errors) == 0, errors
 }
 

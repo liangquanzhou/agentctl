@@ -615,10 +615,17 @@ func ContentPlan(configDir string, opts PlanOpts) (map[string]any, error) {
 
 	// Project scope only applies to rules
 	if opts.Scope == "project" {
-		return map[string]any{
+		result := map[string]any{
 			"generated_at": tx.UTCNowISO(),
 			"items":        nilItems(items),
-		}, nil
+		}
+		legacyPath := filepath.Join(configDir, "registry", "content.json")
+		if fileExists(legacyPath) {
+			result["warnings"] = []string{
+				fmt.Sprintf("legacy %s found — run migration to split config", legacyPath),
+			}
+		}
+		return result, nil
 	}
 
 	// --- Hooks ---
@@ -767,10 +774,20 @@ func ContentPlan(configDir string, opts PlanOpts) (map[string]any, error) {
 		}
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"generated_at": tx.UTCNowISO(),
 		"items":        nilItems(items),
-	}, nil
+	}
+
+	// L1: legacy content.json detection — emit as non-fatal warning, not validation error
+	legacyPath := filepath.Join(configDir, "registry", "content.json")
+	if fileExists(legacyPath) {
+		result["warnings"] = []string{
+			fmt.Sprintf("legacy %s found — run migration to split config", legacyPath),
+		}
+	}
+
+	return result, nil
 }
 
 // nilItems ensures a nil slice is replaced with an empty slice so JSON
