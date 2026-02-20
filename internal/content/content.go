@@ -131,6 +131,11 @@ func composeRules(rulesDir string, compose []string, sep string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve rules dir: %w", err)
 	}
+	// Resolve symlinks on the rules dir itself for proper boundary check
+	resolvedDirReal, err := filepath.EvalSymlinks(resolvedDir)
+	if err != nil {
+		resolvedDirReal = resolvedDir
+	}
 
 	parts := make([]string, 0, len(compose))
 	for _, filename := range compose {
@@ -149,10 +154,19 @@ func composeRules(rulesDir string, compose []string, sep string) (string, error)
 		if err != nil {
 			return "", fmt.Errorf("cannot resolve compose path: %w", err)
 		}
-		if !strings.HasPrefix(path, resolvedDir+string(filepath.Separator)) && path != resolvedDir {
-			return "", fmt.Errorf("compose path escapes rules dir: %s", filename)
+		// Resolve symlinks on the compose path to prevent symlink-based traversal
+		// (e.g., rules/slink -> /etc, compose entry "slink/hosts")
+		pathReal, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", fmt.Errorf("rule source not found: %s", path)
+			}
+			return "", fmt.Errorf("cannot resolve compose symlinks: %w", err)
 		}
-		data, err := os.ReadFile(path)
+		if !strings.HasPrefix(pathReal, resolvedDirReal+string(filepath.Separator)) && pathReal != resolvedDirReal {
+			return "", fmt.Errorf("compose path escapes rules dir (symlink traversal): %s", filename)
+		}
+		data, err := os.ReadFile(pathReal)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return "", fmt.Errorf("rule source not found: %s", path)
