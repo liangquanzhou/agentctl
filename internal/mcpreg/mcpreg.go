@@ -23,6 +23,9 @@ import (
 	"agentctl/internal/validate"
 )
 
+// defaultLockTimeout is the default timeout in seconds for acquiring locks.
+const defaultLockTimeout = 30
+
 // registryFiles enumerates the three MCP registry files that form the triplet.
 var registryFiles = [3]string{"servers.json", "profiles.json", "compat.json"}
 
@@ -130,7 +133,20 @@ func MCPList(configDir string) (map[string]any, error) {
 
 // MCPAdd either adds a new server definition to the registry (--to-list) or
 // assigns an existing server to one or more agents.
+// H3: Acquires exclusive lock before mutating registry files.
 func MCPAdd(configDir, name string, opts AddOpts) (map[string]any, error) {
+	// Acquire exclusive lock
+	lockDir := filepath.Join(configDir, "state", "locks")
+	if err := os.MkdirAll(lockDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create lock dir: %w", err)
+	}
+	lockPath := filepath.Join(lockDir, "mcp_registry.lock")
+	lock, err := tx.AcquireLock(lockPath, 30)
+	if err != nil {
+		return nil, fmt.Errorf("acquire lock: %w", err)
+	}
+	defer tx.ReleaseLock(lock)
+
 	servers, profiles, compat, err := loadRegistryTriplet(configDir)
 	if err != nil {
 		return nil, err
@@ -220,11 +236,9 @@ func MCPAdd(configDir, name string, opts AddOpts) (map[string]any, error) {
 	touchMeta(profiles)
 	touchMeta(compat)
 
-	if err := tx.WriteJSONAtomic(filepath.Join(mcpDir, "profiles.json"), profiles); err != nil {
-		return nil, fmt.Errorf("write profiles.json: %w", err)
-	}
-	if err := tx.WriteJSONAtomic(filepath.Join(mcpDir, "compat.json"), compat); err != nil {
-		return nil, fmt.Errorf("write compat.json: %w", err)
+	// M3: Write profiles and compat atomically with rollback on failure
+	if err := writeRegistryTriplet(mcpDir, servers, profiles, compat); err != nil {
+		return nil, err
 	}
 
 	return map[string]any{
@@ -237,7 +251,20 @@ func MCPAdd(configDir, name string, opts AddOpts) (map[string]any, error) {
 
 // MCPRm removes a server from one or more agents. With --from-list it also
 // deletes the server definition itself.
+// H3: Acquires exclusive lock before mutating registry files.
 func MCPRm(configDir, name string, opts RmOpts) (map[string]any, error) {
+	// Acquire exclusive lock
+	lockDir := filepath.Join(configDir, "state", "locks")
+	if err := os.MkdirAll(lockDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create lock dir: %w", err)
+	}
+	lockPath := filepath.Join(lockDir, "mcp_registry.lock")
+	lock, err := tx.AcquireLock(lockPath, defaultLockTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("acquire lock: %w", err)
+	}
+	defer tx.ReleaseLock(lock)
+
 	servers, profiles, compat, err := loadRegistryTriplet(configDir)
 	if err != nil {
 		return nil, err
@@ -292,14 +319,9 @@ func MCPRm(configDir, name string, opts RmOpts) (map[string]any, error) {
 	touchMeta(profiles)
 	touchMeta(compat)
 
-	if err := tx.WriteJSONAtomic(filepath.Join(mcpDir, "servers.json"), servers); err != nil {
-		return nil, fmt.Errorf("write servers.json: %w", err)
-	}
-	if err := tx.WriteJSONAtomic(filepath.Join(mcpDir, "profiles.json"), profiles); err != nil {
-		return nil, fmt.Errorf("write profiles.json: %w", err)
-	}
-	if err := tx.WriteJSONAtomic(filepath.Join(mcpDir, "compat.json"), compat); err != nil {
-		return nil, fmt.Errorf("write compat.json: %w", err)
+	// M3: Write all 3 files atomically with rollback on failure
+	if err := writeRegistryTriplet(mcpDir, servers, profiles, compat); err != nil {
+		return nil, err
 	}
 
 	op := "rm"
@@ -628,6 +650,60 @@ func readDisabledFor(profiles map[string]any, serverName string) []string {
 	}
 	sort.Strings(disabled)
 	return disabled
+}
+
+// ---------------------------------------------------------------------------
+// Internal: transactional registry writes
+// ---------------------------------------------------------------------------
+
+// writeRegistryTriplet writes all 3 registry files atomically. If any write
+// fails, previously written files are restored from their backups.
+// M3: Ensures 3-file write is transactional.
+func writeRegistryTriplet(mcpDir string, servers, profiles, compat map[string]any) error {
+	files := []struct {
+		name string
+		data map[string]any
+	}{
+		{"servers.json", servers},
+		{"profiles.json", profiles},
+		{"compat.json", compat},
+	}
+
+	// Snapshot existing files before writing
+	type backup struct {
+		path    string
+		existed bool
+		content []byte
+	}
+	var backups []backup
+
+	for _, f := range files {
+		path := filepath.Join(mcpDir, f.name)
+		var b backup
+		b.path = path
+		if data, err := os.ReadFile(path); err == nil {
+			b.existed = true
+			b.content = data
+		}
+		backups = append(backups, b)
+	}
+
+	// Write all files
+	for i, f := range files {
+		path := filepath.Join(mcpDir, f.name)
+		if err := tx.WriteJSONAtomic(path, f.data); err != nil {
+			// Rollback previously written files
+			for j := i - 1; j >= 0; j-- {
+				if backups[j].existed {
+					os.WriteFile(backups[j].path, backups[j].content, 0o644)
+				} else {
+					os.Remove(backups[j].path)
+				}
+			}
+			return fmt.Errorf("write %s: %w", f.name, err)
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

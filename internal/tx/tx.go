@@ -35,7 +35,11 @@ func TodayISO() string {
 // ── Hashing ──────────────────────────────────────────────────────────
 
 // SHA256File computes the SHA-256 hex digest of a file.
+// Rejects symlinked paths to prevent following symlinks to unexpected locations.
 func SHA256File(path string) (string, error) {
+	if err := RejectSymlink(path); err != nil {
+		return "", err
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -90,6 +94,48 @@ func ExpandUser(path string) string {
 		return filepath.Join(HomeDir(), path[1:])
 	}
 	return path
+}
+
+// IsUnderHome validates that a resolved path is under $HOME.
+// It resolves symlinks on both home and the target path for proper comparison.
+func IsUnderHome(path string) error {
+	home := HomeDir()
+	homeResolved, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		homeResolved = home
+	}
+	// Resolve the path; if it doesn't exist yet, resolve the parent
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		// Path may not exist yet -- resolve parent
+		parentResolved, perr := filepath.EvalSymlinks(filepath.Dir(path))
+		if perr != nil {
+			parentResolved = filepath.Dir(path)
+		}
+		resolved = filepath.Join(parentResolved, filepath.Base(path))
+	}
+	resolved = filepath.Clean(resolved)
+	homeResolved = filepath.Clean(homeResolved)
+	if resolved == homeResolved {
+		return nil
+	}
+	if strings.HasPrefix(resolved, homeResolved+string(filepath.Separator)) {
+		return nil
+	}
+	return fmt.Errorf("path escapes home directory: %s (resolved: %s)", path, resolved)
+}
+
+// RejectSymlink checks if path is a symlink and returns an error if so.
+// If the path does not exist, returns nil (safe for not-yet-created paths).
+func RejectSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil // doesn't exist yet, OK
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to operate on symlinked path: %s", path)
+	}
+	return nil
 }
 
 // ── Read ─────────────────────────────────────────────────────────────
@@ -235,6 +281,14 @@ func SnapshotWithSeq(path, snapshotDir string, seq int) (bool, string, error) {
 }
 
 func copyFile(src, dst string) error {
+	// Reject symlinks on both source and destination
+	if err := RejectSymlink(src); err != nil {
+		return err
+	}
+	if err := RejectSymlink(dst); err != nil {
+		return err
+	}
+
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return err

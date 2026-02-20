@@ -124,6 +124,52 @@ func ValidateConfig(configDir string) (bool, []string) {
 		}
 	}
 
+	// M1: validate commands targets are under $HOME
+	if commandsCfg, ok := loaded["commands/config.json"]; ok {
+		agents := tx.GetMap(commandsCfg, "agents")
+		for agent, val := range agents {
+			cmdCfg, ok := val.(map[string]any)
+			if !ok {
+				continue
+			}
+			target := tx.GetString(cmdCfg, "target_dir", "")
+			if target == "" {
+				errors = append(errors, fmt.Sprintf("commands/config.json agent '%s': empty target_dir", agent))
+				continue
+			}
+			resolved := resolveForValidation(target)
+			if !strings.HasPrefix(resolved, home+string(filepath.Separator)) && resolved != home {
+				errors = append(errors, fmt.Sprintf("commands/config.json agent '%s': target_dir escapes home: %s", agent, target))
+			}
+		}
+	}
+
+	// M1: validate ignore targets are under $HOME
+	if ignoreCfg, ok := loaded["ignore.json"]; ok {
+		agents := tx.GetMap(ignoreCfg, "agents")
+		for agent, val := range agents {
+			ignCfg, ok := val.(map[string]any)
+			if !ok {
+				continue
+			}
+			target := tx.GetString(ignCfg, "target", "")
+			if target == "" {
+				errors = append(errors, fmt.Sprintf("ignore.json agent '%s': empty target", agent))
+				continue
+			}
+			resolved := resolveForValidation(target)
+			if !strings.HasPrefix(resolved, home+string(filepath.Separator)) && resolved != home {
+				errors = append(errors, fmt.Sprintf("ignore.json agent '%s': target escapes home: %s", agent, target))
+			}
+		}
+	}
+
+	// L1: legacy content.json detection warning
+	legacyContentPath := filepath.Join(configDir, "registry", "content.json")
+	if _, err := os.Stat(legacyContentPath); err == nil {
+		errors = append(errors, fmt.Sprintf("legacy registry/content.json detected at %s; migrate to split config", legacyContentPath))
+	}
+
 	return len(errors) == 0, errors
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"agentctl/internal/content"
 
@@ -77,6 +78,11 @@ func newContentApplyCmd() *cobra.Command {
 			reason, _ := cmd.Flags().GetString("reason")
 			scope, _ := cmd.Flags().GetString("scope")
 			projectDir, _ := cmd.Flags().GetString("project-dir")
+
+			if breakGlass && strings.TrimSpace(reason) == "" {
+				fmt.Println(red("--break-glass requires --reason"))
+				os.Exit(1)
+			}
 
 			if scope == "project" && projectDir == "" {
 				cwd, _ := os.Getwd()
@@ -154,11 +160,27 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 			configDir, _ := cmd.Flags().GetString("config-dir")
 			output, _ := cmd.Flags().GetString("output")
 			changedOnly, _ := cmd.Flags().GetBool("changed-only")
+			agentFilter, _ := cmd.Flags().GetString("agent")
+			scope, _ := cmd.Flags().GetString("scope")
+			projectDir, _ := cmd.Flags().GetString("project-dir")
 
-			data, err := content.ContentPlan(configDir, content.PlanOpts{TypeFilter: typeName})
+			if scope == "project" && projectDir == "" {
+				cwd, _ := os.Getwd()
+				projectDir = cwd
+			}
+
+			data, err := content.ContentPlan(configDir, content.PlanOpts{
+				TypeFilter: typeName,
+				Scope:      scope,
+				ProjectDir: projectDir,
+			})
 			if err != nil {
 				fmt.Println(red(typeName+" plan failed") + ": " + err.Error())
 				os.Exit(1)
+			}
+
+			if agentFilter != "" {
+				data = filterContentByAgent(data, agentFilter)
 			}
 
 			if changedOnly {
@@ -175,6 +197,9 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 	}
 	planCmd.Flags().String("output", "text", "Output format: text|json")
 	planCmd.Flags().Bool("changed-only", false, "Only show changed items")
+	planCmd.Flags().String("agent", "", "Filter to specific agent")
+	planCmd.Flags().String("scope", "global", "Scope: global|project")
+	planCmd.Flags().String("project-dir", "", "Project directory for project scope")
 
 	// apply
 	applyCmd := &cobra.Command{
@@ -185,11 +210,46 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 			stateDir, _ := cmd.Flags().GetString("state-dir")
 			breakGlass, _ := cmd.Flags().GetBool("break-glass")
 			reason, _ := cmd.Flags().GetString("reason")
+			agentFilter, _ := cmd.Flags().GetString("agent")
+			scope, _ := cmd.Flags().GetString("scope")
+			projectDir, _ := cmd.Flags().GetString("project-dir")
+
+			if breakGlass && strings.TrimSpace(reason) == "" {
+				fmt.Println(red("--break-glass requires --reason"))
+				os.Exit(1)
+			}
+
+			if scope == "project" && projectDir == "" {
+				cwd, _ := os.Getwd()
+				projectDir = cwd
+			}
+
+			// When --agent is set, run plan first to show what will change for that agent,
+			// then apply all (content apply does not support per-agent filtering).
+			// The apply itself targets the type filter, which is the finest granularity.
+			if agentFilter != "" {
+				planData, err := content.ContentPlan(configDir, content.PlanOpts{
+					TypeFilter: typeName,
+					Scope:      scope,
+					ProjectDir: projectDir,
+				})
+				if err != nil {
+					fmt.Println(red(typeName+" plan failed") + ": " + err.Error())
+					os.Exit(1)
+				}
+				filtered := filterContentByAgent(planData, agentFilter)
+				if countMapChangedItems(filtered) == 0 {
+					fmt.Printf("%s: no %s changes for agent %s\n", green("no changes"), typeName, agentFilter)
+					return nil
+				}
+			}
 
 			manifest, err := content.ContentApply(configDir, stateDir, content.ApplyOpts{
 				BreakGlass: breakGlass,
 				Reason:     reason,
 				TypeFilter: typeName,
+				Scope:      scope,
+				ProjectDir: projectDir,
 			})
 			if err != nil {
 				fmt.Println(red(typeName+" apply failed") + ": " + err.Error())
@@ -204,6 +264,9 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 	}
 	applyCmd.Flags().Bool("break-glass", false, "Emergency override")
 	applyCmd.Flags().String("reason", "", "Reason for break-glass")
+	applyCmd.Flags().String("agent", "", "Filter to specific agent")
+	applyCmd.Flags().String("scope", "global", "Scope: global|project")
+	applyCmd.Flags().String("project-dir", "", "Project directory for project scope")
 
 	// status
 	statusCmd := &cobra.Command{
@@ -212,11 +275,27 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configDir, _ := cmd.Flags().GetString("config-dir")
 			changedOnly, _ := cmd.Flags().GetBool("changed-only")
+			agentFilter, _ := cmd.Flags().GetString("agent")
+			scope, _ := cmd.Flags().GetString("scope")
+			projectDir, _ := cmd.Flags().GetString("project-dir")
 
-			data, err := content.ContentPlan(configDir, content.PlanOpts{TypeFilter: typeName})
+			if scope == "project" && projectDir == "" {
+				cwd, _ := os.Getwd()
+				projectDir = cwd
+			}
+
+			data, err := content.ContentPlan(configDir, content.PlanOpts{
+				TypeFilter: typeName,
+				Scope:      scope,
+				ProjectDir: projectDir,
+			})
 			if err != nil {
 				fmt.Println(red(typeName+" status failed") + ": " + err.Error())
 				os.Exit(1)
+			}
+
+			if agentFilter != "" {
+				data = filterContentByAgent(data, agentFilter)
 			}
 
 			if changedOnly {
@@ -233,9 +312,36 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 		},
 	}
 	statusCmd.Flags().Bool("changed-only", false, "Only show changed items")
+	statusCmd.Flags().String("agent", "", "Filter to specific agent")
+	statusCmd.Flags().String("scope", "global", "Scope: global|project")
+	statusCmd.Flags().String("project-dir", "", "Project directory for project scope")
 
 	cmd.AddCommand(planCmd, applyCmd, statusCmd)
 	return cmd
+}
+
+// filterContentByAgent returns a copy of the plan data with only items matching the agent.
+func filterContentByAgent(data map[string]any, agentName string) map[string]any {
+	resolved := resolveAgentName(agentName)
+	items, ok := data["items"].([]map[string]any)
+	if !ok {
+		return data
+	}
+	var filtered []map[string]any
+	for _, item := range items {
+		if a, _ := item["agent"].(string); a == resolved {
+			filtered = append(filtered, item)
+		}
+	}
+	if filtered == nil {
+		filtered = []map[string]any{}
+	}
+	result := make(map[string]any, len(data))
+	for k, v := range data {
+		result[k] = v
+	}
+	result["items"] = filtered
+	return result
 }
 
 // filterContentChanged returns a copy of the plan data with only changed items.

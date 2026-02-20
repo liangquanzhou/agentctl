@@ -148,17 +148,35 @@ func SkillsStatus(sourceDir string, targets map[string]string) map[string]any {
 
 // SkillsSync copies new or updated skills from source to each target,
 // removes stale managed skills, and updates the managed state file.
-//
-// Returns:
-//
-//	{
-//	  "dry_run":      bool,
-//	  "source_dir":   string,
-//	  "source_count": int,
-//	  "targets":      []map[string]any,
-//	  "actions":      int,
-//	}
+// H4: Acquires exclusive lock on managed.json + target trees.
+// M4: Returns errors via the result map "errors" key and as a second return value.
 func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dryRun bool) map[string]any {
+	// H4: Acquire exclusive lock
+	skillsStateDir := filepath.Join(stateDir, "skills")
+	if err := os.MkdirAll(skillsStateDir, 0o755); err != nil {
+		return map[string]any{
+			"dry_run":      dryRun,
+			"source_dir":   sourceDir,
+			"source_count": 0,
+			"targets":      []map[string]any{},
+			"actions":      0,
+			"errors":       []string{fmt.Sprintf("create skills state dir: %v", err)},
+		}
+	}
+	lockPath := filepath.Join(skillsStateDir, ".lock")
+	lock, lockErr := tx.AcquireLock(lockPath, 30)
+	if lockErr != nil {
+		return map[string]any{
+			"dry_run":      dryRun,
+			"source_dir":   sourceDir,
+			"source_count": 0,
+			"targets":      []map[string]any{},
+			"actions":      0,
+			"errors":       []string{fmt.Sprintf("acquire lock: %v", lockErr)},
+		}
+	}
+	defer tx.ReleaseLock(lock)
+
 	srcSkills := discoverSkills(sourceDir)
 	srcHashes := make(map[string]string, len(srcSkills))
 	for name, dir := range srcSkills {
@@ -340,6 +358,17 @@ func SkillsPull(sourceDir, targetName, targetDir string, dryRun, overwrite bool)
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
+// validateSkillName rejects skill names that could cause path traversal.
+func validateSkillName(name string) error {
+	if name == "" || name == "." || name == ".." {
+		return fmt.Errorf("invalid skill name: %q", name)
+	}
+	if filepath.Base(name) != name || name != filepath.Clean(name) {
+		return fmt.Errorf("invalid skill name: %q", name)
+	}
+	return nil
+}
+
 // discoverSkills walks root looking for directories that contain a skill
 // marker file. Returns map[skillName]dirPath.
 func discoverSkills(root string) map[string]string {
@@ -355,7 +384,10 @@ func discoverSkills(root string) map[string]string {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		if err := validateSkillName(entry.Name()); err != nil {
 			continue
 		}
 		dirPath := filepath.Join(root, entry.Name())
@@ -529,6 +561,10 @@ func loadManagedState(stateDir string) map[string][]string {
 		names := make([]string, 0, len(arr))
 		for _, item := range arr {
 			if s, ok := item.(string); ok {
+				// Sanitise names from state to prevent path-traversal deletions
+				if validateSkillName(s) != nil {
+					continue
+				}
 				names = append(names, s)
 			}
 		}

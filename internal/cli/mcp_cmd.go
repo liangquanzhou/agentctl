@@ -3,9 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
+	"agentctl/internal/agents"
 	"agentctl/internal/engine"
 	"agentctl/internal/mcpreg"
+	"agentctl/internal/tx"
 
 	"github.com/spf13/cobra"
 )
@@ -34,10 +38,16 @@ func newMCPPlanCmd() *cobra.Command {
 			secretsDir, _ := cmd.Flags().GetString("secrets-dir")
 			output, _ := cmd.Flags().GetString("output")
 			changedOnly, _ := cmd.Flags().GetBool("changed-only")
+			agentFilter, _ := cmd.Flags().GetString("agent")
+			showDiff, _ := cmd.Flags().GetBool("show-diff")
 
 			result, err := engine.Plan(configDir, secretsDir)
 			if err != nil {
 				return err
+			}
+
+			if agentFilter != "" {
+				result = filterEnginePlanByAgent(result, agentFilter)
 			}
 
 			if changedOnly {
@@ -49,11 +59,16 @@ func newMCPPlanCmd() *cobra.Command {
 				return nil
 			}
 			printEnginePlanTable(result)
+			if showDiff {
+				printMCPDiff(result)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().String("output", "text", "Output format: text|json")
 	cmd.Flags().Bool("changed-only", false, "Only show changed agents")
+	cmd.Flags().String("agent", "", "Filter to specific agent")
+	cmd.Flags().Bool("show-diff", false, "Show per-agent diff of added/removed/changed servers")
 	return cmd
 }
 
@@ -65,10 +80,14 @@ func newMCPStatusCmd() *cobra.Command {
 			configDir, _ := cmd.Flags().GetString("config-dir")
 			secretsDir, _ := cmd.Flags().GetString("secrets-dir")
 			changedOnly, _ := cmd.Flags().GetBool("changed-only")
-			return runEngineMCPStatusFiltered(configDir, secretsDir, changedOnly)
+			agentFilter, _ := cmd.Flags().GetString("agent")
+			showDiff, _ := cmd.Flags().GetBool("show-diff")
+			return runEngineMCPStatusFiltered(configDir, secretsDir, changedOnly, agentFilter, showDiff)
 		},
 	}
 	cmd.Flags().Bool("changed-only", false, "Only show changed agents")
+	cmd.Flags().String("agent", "", "Filter to specific agent")
+	cmd.Flags().Bool("show-diff", false, "Show per-agent diff of added/removed/changed servers")
 	return cmd
 }
 
@@ -82,6 +101,11 @@ func newMCPApplyCmd() *cobra.Command {
 			stateDir, _ := cmd.Flags().GetString("state-dir")
 			breakGlass, _ := cmd.Flags().GetBool("break-glass")
 			reason, _ := cmd.Flags().GetString("reason")
+
+			if breakGlass && strings.TrimSpace(reason) == "" {
+				fmt.Println(red("--break-glass requires --reason"))
+				os.Exit(1)
+			}
 
 			result, err := engine.Apply(configDir, secretsDir, stateDir, breakGlass, reason, os.Getenv("USER"))
 			if err != nil {
@@ -362,6 +386,32 @@ func joinStrings(s []string, sep string) string {
 	return result
 }
 
+// resolveAgentName resolves an agent name or alias to the canonical agent name.
+func resolveAgentName(name string) string {
+	aliasMap := agents.BuildAliasMap(agents.LoadAgentRegistry(""))
+	if resolved, ok := aliasMap[strings.ToLower(name)]; ok {
+		return resolved
+	}
+	return name
+}
+
+// filterEnginePlanByAgent returns a copy of PlanResult with only the specified agent.
+func filterEnginePlanByAgent(result *engine.PlanResult, agentName string) *engine.PlanResult {
+	resolved := resolveAgentName(agentName)
+	var filtered []engine.PlanAgent
+	for _, a := range result.Agents {
+		if a.Agent == resolved {
+			filtered = append(filtered, a)
+		}
+	}
+	return &engine.PlanResult{
+		GeneratedAt: result.GeneratedAt,
+		ConfigDir:   result.ConfigDir,
+		SecretsDir:  result.SecretsDir,
+		Agents:      filtered,
+	}
+}
+
 // filterEnginePlanChanged returns a copy of PlanResult with only changed agents.
 func filterEnginePlanChanged(result *engine.PlanResult) *engine.PlanResult {
 	var filtered []engine.PlanAgent
@@ -378,11 +428,64 @@ func filterEnginePlanChanged(result *engine.PlanResult) *engine.PlanResult {
 	}
 }
 
-// runEngineMCPStatusFiltered runs MCP status with optional changed-only filter.
-func runEngineMCPStatusFiltered(configDir, secretsDir string, changedOnly bool) error {
+// printMCPDiff prints a per-agent diff of added/removed/changed MCP servers.
+func printMCPDiff(result *engine.PlanResult) {
+	for _, a := range result.Agents {
+		if !a.Changed {
+			continue
+		}
+		fmt.Printf("\nAgent: %s\n", a.Agent)
+
+		current := a.Current
+		if current == nil {
+			current = map[string]any{}
+		}
+		desired := a.Desired
+		if desired == nil {
+			desired = map[string]any{}
+		}
+
+		// Collect all server names and sort for deterministic output
+		nameSet := make(map[string]bool)
+		for name := range current {
+			nameSet[name] = true
+		}
+		for name := range desired {
+			nameSet[name] = true
+		}
+		names := make([]string, 0, len(nameSet))
+		for name := range nameSet {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		for _, name := range names {
+			_, inCurrent := current[name]
+			_, inDesired := desired[name]
+
+			switch {
+			case inDesired && !inCurrent:
+				fmt.Printf("  + %s (added)\n", name)
+			case inCurrent && !inDesired:
+				fmt.Printf("  - %s (removed)\n", name)
+			case inCurrent && inDesired:
+				if tx.Normalize(current[name]) != tx.Normalize(desired[name]) {
+					fmt.Printf("  ~ %s (modified)\n", name)
+				}
+			}
+		}
+	}
+}
+
+// runEngineMCPStatusFiltered runs MCP status with optional changed-only and agent filters.
+func runEngineMCPStatusFiltered(configDir, secretsDir string, changedOnly bool, agentFilter string, showDiff bool) error {
 	result, err := engine.Plan(configDir, secretsDir)
 	if err != nil {
 		return err
+	}
+
+	if agentFilter != "" {
+		result = filterEnginePlanByAgent(result, agentFilter)
 	}
 
 	if changedOnly {
@@ -390,6 +493,9 @@ func runEngineMCPStatusFiltered(configDir, secretsDir string, changedOnly bool) 
 	}
 
 	printEnginePlanTable(result)
+	if showDiff {
+		printMCPDiff(result)
+	}
 	changed := 0
 	for _, a := range result.Agents {
 		if a.Changed {

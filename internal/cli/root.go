@@ -93,6 +93,11 @@ func runApplyAll(cmd *cobra.Command, args []string) error {
 	reason, _ := cmd.Flags().GetString("reason")
 	bestEffort, _ := cmd.Flags().GetBool("best-effort")
 
+	if breakGlass && strings.TrimSpace(reason) == "" {
+		fmt.Println(red("--break-glass requires --reason"))
+		os.Exit(1)
+	}
+
 	var errs []string
 
 	// 1. MCP apply
@@ -122,9 +127,21 @@ func runApplyAll(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s run_id=%s changed=%d\n", green("content apply"), contentManifest["run_id"], changed)
 	}
 
-	// 3. Skills sync
+	// 3. Skills sync (H5: errors propagated, not silently ignored)
 	targets := getSkillsTargets(cmd)
 	skillsData := skills.SkillsSync(getSkillsSource(cmd), targets, stateDir, false)
+	if skillsErrors, ok := skillsData["errors"]; ok {
+		if errList, ok := skillsErrors.([]string); ok && len(errList) > 0 {
+			fmt.Println(red("skills sync had errors") + ":")
+			for _, e := range errList {
+				fmt.Println("  - " + e)
+			}
+			if !bestEffort {
+				os.Exit(1)
+			}
+			errs = append(errs, "skills: "+strings.Join(errList, "; "))
+		}
+	}
 	fmt.Printf("%s actions=%v\n", green("skills sync"), skillsData["actions"])
 
 	if len(errs) > 0 {
@@ -143,6 +160,7 @@ func newStatusAllCmd() *cobra.Command {
 		Short: "Status of all subsystems",
 		RunE:  runStatusAll,
 	}
+	cmd.Flags().String("output", "text", "Output format: text|json")
 	addSkillsFlags(cmd)
 	return cmd
 }
@@ -150,49 +168,86 @@ func newStatusAllCmd() *cobra.Command {
 func runStatusAll(cmd *cobra.Command, args []string) error {
 	configDir, _ := cmd.Flags().GetString("config-dir")
 	secretsDir, _ := cmd.Flags().GetString("secrets-dir")
+	output, _ := cmd.Flags().GetString("output")
 	hasDrift := false
 
 	// 1. MCP
-	fmt.Println(bold("── MCP ──"))
-	mcpResult, err := engine.Plan(configDir, secretsDir)
-	if err != nil {
-		fmt.Println(red("mcp status failed") + ": " + err.Error())
-		hasDrift = true
-	} else {
-		printEnginePlanTable(mcpResult)
-		changed := 0
+	mcpResult, mcpErr := engine.Plan(configDir, secretsDir)
+	mcpDrift := 0
+	if mcpErr == nil {
 		for _, a := range mcpResult.Agents {
 			if a.Changed {
-				changed++
+				mcpDrift++
 			}
 		}
-		if changed > 0 {
-			fmt.Printf("%s: %d agent(s)\n", yellow("MCP drift"), changed)
+		if mcpDrift > 0 {
 			hasDrift = true
 		}
+	} else {
+		hasDrift = true
 	}
 
 	// 2. Content
-	fmt.Println(bold("\n── Content (rules/hooks/commands/ignore) ──"))
-	contentData, err := content.ContentPlan(configDir, content.PlanOpts{})
-	if err != nil {
-		fmt.Println(red("content status failed") + ": " + err.Error())
-		hasDrift = true
+	contentData, contentErr := content.ContentPlan(configDir, content.PlanOpts{})
+	contentDrift := 0
+	if contentErr == nil {
+		contentDrift = countMapChangedItems(contentData)
+		if contentDrift > 0 {
+			hasDrift = true
+		}
 	} else {
-		printContentPlanTable(contentData)
-		if changed := countMapChangedItems(contentData); changed > 0 {
-			fmt.Printf("%s: %d item(s)\n", yellow("Content drift"), changed)
+		hasDrift = true
+	}
+
+	// 3. Skills
+	targets := getSkillsTargets(cmd)
+	skillsData := skills.SkillsStatus(getSkillsSource(cmd), targets)
+	skillsDrift := 0
+	if total, ok := skillsData["unsynced_total"].(int); ok {
+		skillsDrift = total
+		if total > 0 {
 			hasDrift = true
 		}
 	}
 
-	// 3. Skills
+	if output == "json" {
+		result := map[string]any{
+			"mcp":     map[string]any{"drift": mcpDrift, "error": errStr(mcpErr)},
+			"content": map[string]any{"drift": contentDrift, "error": errStr(contentErr)},
+			"skills":  map[string]any{"drift": skillsDrift},
+			"healthy": !hasDrift,
+		}
+		PrintJSON(result)
+		if hasDrift {
+			os.Exit(1)
+		}
+		return nil
+	}
+
+	// Text output
+	fmt.Println(bold("── MCP ──"))
+	if mcpErr != nil {
+		fmt.Println(red("mcp status failed") + ": " + mcpErr.Error())
+	} else {
+		printEnginePlanTable(mcpResult)
+		if mcpDrift > 0 {
+			fmt.Printf("%s: %d agent(s)\n", yellow("MCP drift"), mcpDrift)
+		}
+	}
+
+	fmt.Println(bold("\n── Content (rules/hooks/commands/ignore) ──"))
+	if contentErr != nil {
+		fmt.Println(red("content status failed") + ": " + contentErr.Error())
+	} else {
+		printContentPlanTable(contentData)
+		if contentDrift > 0 {
+			fmt.Printf("%s: %d item(s)\n", yellow("Content drift"), contentDrift)
+		}
+	}
+
 	fmt.Println(bold("\n── Skills ──"))
-	targets := getSkillsTargets(cmd)
-	skillsData := skills.SkillsStatus(getSkillsSource(cmd), targets)
-	if total, ok := skillsData["unsynced_total"].(int); ok && total > 0 {
-		fmt.Printf("%s: %d unsynced\n", yellow("Skills drift"), total)
-		hasDrift = true
+	if skillsDrift > 0 {
+		fmt.Printf("%s: %d unsynced\n", yellow("Skills drift"), skillsDrift)
 	} else {
 		fmt.Println(green("Skills: in sync"))
 	}
@@ -203,6 +258,14 @@ func runStatusAll(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println("\n" + green("Healthy") + ": no drift across all subsystems")
 	return nil
+}
+
+// errStr returns "" for nil errors, otherwise the error message.
+func errStr(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // ── drift ────────────────────────────────────────────────────────────

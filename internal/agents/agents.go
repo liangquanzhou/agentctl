@@ -2,6 +2,7 @@
 package agents
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -145,21 +146,29 @@ func parseTOML(path string) (AgentDefinition, error) {
 
 	skillsDir := tx.GetString(skills, "target_dir", "")
 
+	expandedMCPPath := tx.ExpandUser(mcpPath)
+	if err := tx.IsUnderHome(expandedMCPPath); err != nil {
+		return AgentDefinition{}, fmt.Errorf("agent %q: mcp.path %w", name, err)
+	}
+
+	var expandedSkillsTarget string
+	if skillsDir != "" {
+		expandedSkillsTarget = tx.ExpandUser(skillsDir)
+		if err := tx.IsUnderHome(expandedSkillsTarget); err != nil {
+			return AgentDefinition{}, fmt.Errorf("agent %q: skills.target_dir %w", name, err)
+		}
+	}
+
 	return AgentDefinition{
 		Name:           name,
 		Aliases:        aliases,
 		DisplayOrder:   displayOrder,
 		MCPFileType:    tx.GetString(mcp, "file_type", "json"),
-		MCPPath:        tx.ExpandUser(mcpPath),
+		MCPPath:        expandedMCPPath,
 		MCPInjectKey:   tx.GetString(mcp, "inject_key", "mcpServers"),
 		MCPManagedKeys: tx.GetStringSlice(mcp, "managed_keys"),
 		HooksFormat:    tx.GetString(hooks, "format", ""),
-		SkillsTarget: func() string {
-			if skillsDir != "" {
-				return tx.ExpandUser(skillsDir)
-			}
-			return ""
-		}(),
+		SkillsTarget:   expandedSkillsTarget,
 	}, nil
 }
 

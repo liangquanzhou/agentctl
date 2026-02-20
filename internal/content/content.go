@@ -56,12 +56,20 @@ var validTypeFilters = map[string]bool{
 
 // ── Path safety ──────────────────────────────────────────────────────
 
-// resolvePath expands ~ and resolves the path. Rejects paths that escape $HOME.
+// resolvePath expands ~ and resolves the path. Rejects paths that escape $HOME
+// and rejects symlinked targets.
 func resolvePath(target string) (string, error) {
+	if target == "" {
+		return "", fmt.Errorf("target path is empty")
+	}
 	expanded := tx.ExpandUser(target)
 	resolved, err := filepath.Abs(expanded)
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve path %q: %w", target, err)
+	}
+	// H7: Reject symlinked targets
+	if err := tx.RejectSymlink(resolved); err != nil {
+		return "", err
 	}
 	// EvalSymlinks on both paths for proper comparison
 	home := tx.HomeDir()
@@ -84,8 +92,15 @@ func resolvePath(target string) (string, error) {
 // resolveProjectPath resolves a relative filename inside projectDir. Rejects
 // directory traversal attempts (.. or absolute paths).
 func resolveProjectPath(projectDir, filename string) (string, error) {
-	if strings.Contains(filename, "..") || strings.HasPrefix(filename, "/") {
+	if strings.HasPrefix(filename, "/") {
 		return "", fmt.Errorf("path traversal in project target: %s", filename)
+	}
+	// M5: Check each path component for ".." instead of substring check.
+	cleanParts := strings.Split(filepath.Clean(filename), string(filepath.Separator))
+	for _, part := range cleanParts {
+		if part == ".." {
+			return "", fmt.Errorf("path traversal in project target: %s", filename)
+		}
 	}
 	resolved, err := filepath.Abs(filepath.Join(projectDir, filename))
 	if err != nil {
@@ -119,8 +134,16 @@ func composeRules(rulesDir string, compose []string, sep string) (string, error)
 
 	parts := make([]string, 0, len(compose))
 	for _, filename := range compose {
-		if strings.Contains(filename, "..") || strings.HasPrefix(filename, "/") {
-			return "", fmt.Errorf("invalid compose filename (path traversal): %s", filename)
+		// M5: Check each path component for ".." instead of substring check.
+		// This allows filenames like "v1..md" while rejecting actual traversal.
+		if strings.HasPrefix(filename, "/") {
+			return "", fmt.Errorf("invalid compose filename (absolute path): %s", filename)
+		}
+		cleanParts := strings.Split(filepath.Clean(filename), string(filepath.Separator))
+		for _, part := range cleanParts {
+			if part == ".." {
+				return "", fmt.Errorf("invalid compose filename (path traversal): %s", filename)
+			}
 		}
 		path, err := filepath.Abs(filepath.Join(resolvedDir, filename))
 		if err != nil {
@@ -330,6 +353,7 @@ func loadHooksConfig(configDir string) (map[string]any, error) {
 }
 
 // loadCommandsConfig loads commands/config.json from configDir.
+// H6: validates that all agent target_dir values are non-empty and under $HOME.
 func loadCommandsConfig(configDir string) (map[string]any, error) {
 	path := filepath.Join(configDir, "commands", "config.json")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -339,10 +363,23 @@ func loadCommandsConfig(configDir string) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("commands config: %w", err)
 	}
+	// Validate targets
+	agents := tx.GetMap(cfg, "agents")
+	for name, val := range agents {
+		agentCfg, ok := val.(map[string]any)
+		if !ok {
+			continue
+		}
+		target := tx.GetString(agentCfg, "target_dir", "")
+		if target == "" {
+			return nil, fmt.Errorf("commands config: agent %q has empty target_dir", name)
+		}
+	}
 	return cfg, nil
 }
 
 // loadIgnoreConfig loads ignore.json from configDir.
+// H6: validates that all agent target values are non-empty and under $HOME.
 func loadIgnoreConfig(configDir string) (map[string]any, error) {
 	path := filepath.Join(configDir, "ignore.json")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -354,6 +391,18 @@ func loadIgnoreConfig(configDir string) (map[string]any, error) {
 	cfg, err := tx.ReadJSON(path)
 	if err != nil {
 		return nil, fmt.Errorf("ignore config: %w", err)
+	}
+	// Validate targets
+	agents := tx.GetMap(cfg, "agents")
+	for name, val := range agents {
+		agentCfg, ok := val.(map[string]any)
+		if !ok {
+			continue
+		}
+		target := tx.GetString(agentCfg, "target", "")
+		if target == "" {
+			return nil, fmt.Errorf("ignore config: agent %q has empty target", name)
+		}
 	}
 	return cfg, nil
 }
@@ -1075,8 +1124,9 @@ func applyHookChange(hooksCfg map[string]any, agent, path string) error {
 	return tx.WriteJSONAtomic(path, full)
 }
 
-// applyCommandChange copies a command source file to the target path,
+// applyCommandChange copies a command source file to the target path atomically,
 // or deletes the target if the item is stale (no longer in source).
+// M2: Uses atomic write (read + WriteTextAtomic) instead of direct copy.
 func applyCommandChange(item map[string]any, path string) error {
 	if tx.GetBool(item, "stale", false) {
 		return os.Remove(path)
@@ -1085,10 +1135,12 @@ func applyCommandChange(item map[string]any, path string) error {
 	if source == "" {
 		return fmt.Errorf("missing source for command item")
 	}
-	if err := tx.EnsureParent(path); err != nil {
-		return err
+	// Read source content and write atomically to target
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return fmt.Errorf("read source %s: %w", source, err)
 	}
-	return tx.CopyFile(source, path)
+	return tx.WriteTextAtomic(path, string(data))
 }
 
 // applyIgnoreChange writes the ignore file content to the target path.

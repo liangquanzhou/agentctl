@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -21,6 +22,9 @@ import (
 	"agentctl/internal/tx"
 	"agentctl/internal/validate"
 )
+
+// runIDRegex is the strict format for run IDs: YYYYMMDD-HHMMSS-<8hex>.
+var runIDRegex = regexp.MustCompile(`^\d{8}-\d{6}-[0-9a-f]{8}$`)
 
 // RegistryFiles lists the MCP config files that comprise the registry.
 var RegistryFiles = []string{
@@ -343,7 +347,8 @@ type PlanAgent struct {
 	CurrentCount int            `json:"current_count"`
 	DesiredCount int            `json:"desired_count"`
 	Desired      map[string]any `json:"desired"`
-	FullCurrent  map[string]any `json:"-"` // internal, not serialized to JSON
+	Current      map[string]any `json:"-"` // current MCP subtree, not serialized
+	FullCurrent  map[string]any `json:"-"` // full document, not serialized to JSON
 }
 
 // planInternal computes the desired vs current diff for all agents.
@@ -366,6 +371,11 @@ func planInternal(configDir, secretsDir string) (*PlanResult, error) {
 	var resultAgents []PlanAgent
 
 	for agentName, spec := range agentSpecs {
+		// Security: validate spec.Path is under $HOME before any read/write
+		if err := tx.IsUnderHome(spec.Path); err != nil {
+			return nil, fmt.Errorf("agent %s: %w", agentName, err)
+		}
+
 		// Check if agent is configured in profiles or compat
 		_, inProfiles := profilesAgents[agentName]
 		inCompat := false
@@ -401,6 +411,7 @@ func planInternal(configDir, secretsDir string) (*PlanResult, error) {
 			CurrentCount: len(current),
 			DesiredCount: len(desired),
 			Desired:      desired,
+			Current:      current,
 			FullCurrent:  full,
 		})
 	}
@@ -673,19 +684,10 @@ func Apply(configDir, secretsDir, stateDir string, breakGlass bool, reason, acto
 
 // ── Run ID validation ────────────────────────────────────────────────
 
-// validateRunID ensures a run ID contains only safe characters
-// (alphanumeric, dash, underscore) and is non-empty with no ".." sequences.
+// validateRunID ensures a run ID matches the strict format: YYYYMMDD-HHMMSS-<8hex>.
 func validateRunID(runID string) error {
-	if runID == "" {
-		return fmt.Errorf("invalid run_id: %q", runID)
-	}
-	if strings.Contains(runID, "..") {
-		return fmt.Errorf("invalid run_id: %q", runID)
-	}
-	for _, c := range runID {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
-			return fmt.Errorf("invalid run_id: %q (only alphanumeric, dash, underscore allowed)", runID)
-		}
+	if !runIDRegex.MatchString(runID) {
+		return fmt.Errorf("invalid run_id: %q (must match YYYYMMDD-HHMMSS-<8hex>)", runID)
 	}
 	return nil
 }
@@ -801,10 +803,24 @@ func Rollback(stateDir, runID, agent, actor string) (*RollbackResult, error) {
 		preExists, _ := meta["pre_exists"].(bool)
 		snapshot, _ := meta["snapshot"].(string)
 
+		// Security (C1): validate target path from manifest is under $HOME
+		if err := tx.IsUnderHome(path); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Sprintf("target path escapes home: %s", path))
+			continue
+		}
+
 		// Security: ensure snapshot path is under state_dir/snapshots/
 		if snapshot != "" && !strings.HasPrefix(filepath.Clean(snapshot), expectedPrefix) {
 			rollbackErrors = append(rollbackErrors, fmt.Sprintf("snapshot path outside expected dir: %s", snapshot))
 			continue
+		}
+
+		// Security: validate snapshot path is also under $HOME
+		if snapshot != "" {
+			if err := tx.IsUnderHome(snapshot); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Sprintf("snapshot path escapes home: %s", snapshot))
+				continue
+			}
 		}
 
 		if preExists && snapshot != "" {
