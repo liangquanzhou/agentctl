@@ -260,6 +260,10 @@ func dirSyncPlan(sourceDir, targetDir, agent, itemType string) []map[string]any 
 				if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || entry.Name() == "config.json" {
 					continue
 				}
+				// Skip symlinks to prevent following them outside source tree
+				if entry.Type()&os.ModeSymlink != 0 {
+					continue
+				}
 				sourceNames[entry.Name()] = true
 				srcFile := filepath.Join(sourceDir, entry.Name())
 				tgtFile := filepath.Join(targetDir, entry.Name())
@@ -1151,6 +1155,10 @@ func applyCommandChange(item map[string]any, path string) error {
 	source := tx.GetString(item, "source", "")
 	if source == "" {
 		return fmt.Errorf("missing source for command item")
+	}
+	// Reject symlinked source to prevent reading outside source tree
+	if err := tx.RejectSymlink(source); err != nil {
+		return fmt.Errorf("source symlink check: %w", err)
 	}
 	// Read source content and write atomically to target
 	data, err := os.ReadFile(source)
