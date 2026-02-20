@@ -106,12 +106,26 @@ func resolveProjectPath(projectDir, filename string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve project path: %w", err)
 	}
+	// Resolve symlinks to prevent symlink-based escape from project dir
+	resolvedReal, err := filepath.EvalSymlinks(resolved)
+	if err != nil {
+		// Path may not exist yet — resolve parent instead
+		parentReal, perr := filepath.EvalSymlinks(filepath.Dir(resolved))
+		if perr != nil {
+			parentReal = filepath.Dir(resolved)
+		}
+		resolvedReal = filepath.Join(parentReal, filepath.Base(resolved))
+	}
 	absProject, err := filepath.Abs(projectDir)
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve project dir: %w", err)
 	}
-	if !strings.HasPrefix(resolved, absProject+string(filepath.Separator)) && resolved != absProject {
-		return "", fmt.Errorf("project target escapes project dir: %s", filename)
+	absProjectReal, err := filepath.EvalSymlinks(absProject)
+	if err != nil {
+		absProjectReal = absProject
+	}
+	if !strings.HasPrefix(resolvedReal, absProjectReal+string(filepath.Separator)) && resolvedReal != absProjectReal {
+		return "", fmt.Errorf("project target escapes project dir (symlink traversal): %s", filename)
 	}
 	return resolved, nil
 }
