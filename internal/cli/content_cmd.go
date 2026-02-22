@@ -317,6 +317,19 @@ func newContentTypeCmd(typeName string) *cobra.Command {
 	statusCmd.Flags().String("project-dir", "", "Project directory for project scope")
 
 	cmd.AddCommand(planCmd, applyCmd, statusCmd)
+
+	// Add CRUD sub-commands per content type
+	switch typeName {
+	case "rules":
+		cmd.AddCommand(newRulesListCmd(), newRulesAddCmd(), newRulesRmCmd())
+	case "hooks":
+		cmd.AddCommand(newHooksListCmd(), newHooksAddCmd(), newHooksRmCmd())
+	case "commands":
+		cmd.AddCommand(newCommandsListCmd(), newCommandsAddCmd(), newCommandsRmCmd())
+	case "ignore":
+		cmd.AddCommand(newIgnoreListCmd(), newIgnoreAddCmd(), newIgnoreRmCmd())
+	}
+
 	return cmd
 }
 
