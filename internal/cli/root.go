@@ -16,10 +16,11 @@ import (
 )
 
 // NewRootCmd creates the root cobra command.
-func NewRootCmd() *cobra.Command {
+func NewRootCmd(version string) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "agentctl",
-		Short: "agentctl - multi-agent control plane CLI",
+		Use:     "agentctl",
+		Short:   "agentctl - multi-agent control plane CLI",
+		Version: version,
 	}
 
 	root.PersistentFlags().String("config-dir", DefaultConfigDir(), "Config directory")

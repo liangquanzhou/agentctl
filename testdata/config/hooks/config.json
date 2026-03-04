@@ -7,7 +7,7 @@
         "SessionEnd": [
           {
             "type": "command",
-            "command": "/Users/didi/.claude/hooks/.venv/bin/python3 /Users/didi/.claude/hooks/auto-memory.py",
+            "command": "/home/user/.claude/hooks/.venv/bin/python3 /home/user/.claude/hooks/auto-memory.py",
             "timeout": 60
           },
           {

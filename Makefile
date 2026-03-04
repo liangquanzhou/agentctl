@@ -1,10 +1,12 @@
-.PHONY: build test clean install
+.PHONY: build test clean install lint
 
 BINARY := agentctl
 BUILD_DIR := ./build
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS := -s -w -X main.Version=$(VERSION)
 
 build:
-	go build -o $(BUILD_DIR)/$(BINARY) ./cmd/agentctl
+	go build -ldflags '$(LDFLAGS)' -o $(BUILD_DIR)/$(BINARY) ./cmd/agentctl
 
 test:
 	go test ./... -v

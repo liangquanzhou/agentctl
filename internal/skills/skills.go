@@ -394,15 +394,34 @@ func discoverSkills(root string) map[string]string {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+		name := entry.Name()
+		if err := validateSkillName(name); err != nil {
 			continue
 		}
-		if err := validateSkillName(entry.Name()); err != nil {
+
+		dirPath := filepath.Join(root, name)
+		checkPath := dirPath // path used for isSkillDir check
+
+		if entry.Type()&os.ModeSymlink != 0 {
+			// Symlink: resolve target, must be a directory under $HOME
+			resolved, err := filepath.EvalSymlinks(dirPath)
+			if err != nil {
+				continue
+			}
+			info, err := os.Stat(resolved)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			if err := tx.IsUnderHome(resolved); err != nil {
+				continue
+			}
+			checkPath = resolved // use resolved path to avoid TOCTOU
+		} else if !entry.IsDir() {
 			continue
 		}
-		dirPath := filepath.Join(root, entry.Name())
-		if isSkillDir(dirPath) {
-			skills[entry.Name()] = dirPath
+
+		if isSkillDir(checkPath) {
+			skills[name] = dirPath
 		}
 	}
 
