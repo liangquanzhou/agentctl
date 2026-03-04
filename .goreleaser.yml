@@ -27,15 +27,17 @@ changelog:
       - "^docs:"
       - "^test:"
 
-homebrew_casks:
+brews:
   - name: agentctl
-    binaries:
-      - agentctl
     homepage: "https://github.com/liangquanzhou/agentctl"
     description: "Multi-agent control plane CLI"
-    caveats: "Run 'agentctl doctor' to verify your setup."
+    license: "MIT"
     repository:
       owner: liangquanzhou
       name: homebrew-tap
-    directory: Casks
+    directory: Formula
     commit_msg_template: "chore: update {{ .ProjectName }} to {{ .Tag }}"
+    install: |
+      bin.install "agentctl"
+    test: |
+      system "#{bin}/agentctl", "--version"
