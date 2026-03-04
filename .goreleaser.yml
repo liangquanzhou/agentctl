@@ -1,0 +1,41 @@
+version: 2
+
+builds:
+  - main: ./cmd/agentctl
+    binary: agentctl
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+homebrew_casks:
+  - name: agentctl
+    binaries:
+      - agentctl
+    homepage: "https://github.com/liangquanzhou/agentctl"
+    description: "Multi-agent control plane CLI"
+    caveats: "Run 'agentctl doctor' to verify your setup."
+    repository:
+      owner: liangquanzhou
+      name: homebrew-tap
+    directory: Casks
+    commit_msg_template: "chore: update {{ .ProjectName }} to {{ .Tag }}"
