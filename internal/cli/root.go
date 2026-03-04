@@ -3,12 +3,13 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"agentctl/internal/agents"
 	"agentctl/internal/content"
 	"agentctl/internal/engine"
+	"agentctl/internal/mcpreg"
 	"agentctl/internal/skills"
 	"agentctl/internal/validate"
 
@@ -39,6 +40,7 @@ func NewRootCmd(version string) *cobra.Command {
 	root.AddCommand(newStagebCmd())
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newSkillsCmd())
+	root.AddCommand(newAgentsCmd())
 	root.AddCommand(newContentCmd())
 
 	for _, typeName := range []string{"rules", "hooks", "commands", "ignore"} {
@@ -363,68 +365,117 @@ func newDoctorCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configDir, _ := cmd.Flags().GetString("config-dir")
 			secretsDir, _ := cmd.Flags().GetString("secrets-dir")
-			checkSecrets, _ := cmd.Flags().GetBool("check-secrets")
-			checkSecretsAge, _ := cmd.Flags().GetBool("check-secrets-age")
 			maxAgeDays, _ := cmd.Flags().GetInt("max-age-days")
 
+			var warnings []string
+			hasError := false
+
+			// ── 1. Config validation ──
+			fmt.Println(bold("── Config ──"))
 			ok, validationErrs := validate.ValidateConfig(configDir)
 			if !ok {
-				fmt.Println(red("doctor failed") + ": config invalid")
+				fmt.Println(red("FAIL") + " config invalid")
 				for _, e := range validationErrs {
-					fmt.Println("- " + e)
+					fmt.Println("  - " + e)
 				}
-				os.Exit(1)
+				hasError = true
+			} else {
+				fmt.Println(green("OK") + " config valid")
 			}
 
-			var issues []string
+			// ── 2. Agent probe ──
+			fmt.Println(bold("\n── Agents ──"))
+			registry := agents.LoadAgentRegistry("")
+			probes := agents.ProbeAll(registry)
+			for _, p := range probes {
+				status := green("OK")
+				detail := ""
+				if !p.Installed {
+					status = yellow("--")
+					detail = " (not installed)"
+				} else if !p.ConfigFound {
+					status = yellow("WARN")
+					detail = " (no config file)"
+					warnings = append(warnings, p.Name+": config file missing")
+				} else if !p.ConfigWritable {
+					status = red("FAIL")
+					detail = " (config not writable)"
+					warnings = append(warnings, p.Name+": config not writable")
+				}
+				fmt.Printf("  %s %-14s%s\n", status, p.Name, detail)
+			}
 
-			if checkSecrets {
-				hasEnv := false
-				entries, _ := os.ReadDir(secretsDir)
-				for _, e := range entries {
-					if !e.IsDir() && strings.HasSuffix(e.Name(), ".env") {
-						hasEnv = true
-						break
+			// ── 3. MCP preflight ──
+			fmt.Println(bold("\n── MCP Preflight ──"))
+			checkResult, checkErr := mcpreg.MCPCheck(configDir, secretsDir)
+			if checkErr != nil {
+				fmt.Println(red("FAIL") + " " + checkErr.Error())
+				hasError = true
+			} else {
+				passed := 0
+				failed := 0
+				if servers, ok := checkResult["servers"].(map[string]any); ok {
+					for name, v := range servers {
+						if srv, ok := v.(map[string]any); ok {
+							if srv["ok"] == true {
+								passed++
+							} else {
+								failed++
+								if errMsg, ok := srv["error"].(string); ok {
+									warnings = append(warnings, "mcp "+name+": "+errMsg)
+								}
+							}
+						}
 					}
 				}
-				if !hasEnv {
-					issues = append(issues, "no secrets .env files found")
+				if failed == 0 {
+					fmt.Printf(green("OK")+" all %d servers passed preflight\n", passed)
+				} else {
+					fmt.Printf(yellow("WARN")+" %d passed, %d failed\n", passed, failed)
 				}
 			}
 
-			if checkSecretsAge {
-				entries, _ := os.ReadDir(secretsDir)
-				for _, e := range entries {
-					if e.IsDir() || !strings.HasSuffix(e.Name(), ".env") {
-						continue
-					}
+			// ── 4. Secrets ──
+			fmt.Println(bold("\n── Secrets ──"))
+			hasEnv := false
+			entries, _ := os.ReadDir(secretsDir)
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".env") {
+					hasEnv = true
 					info, err := e.Info()
 					if err != nil {
 						continue
 					}
 					ageDays := int(time.Since(info.ModTime()).Hours() / 24)
 					if ageDays > maxAgeDays {
-						p := filepath.Join(secretsDir, e.Name())
-						issues = append(issues, fmt.Sprintf("secrets file too old (%dd): %s", ageDays, p))
+						warnings = append(warnings, fmt.Sprintf("secrets file too old (%dd): %s", ageDays, e.Name()))
 					}
 				}
 			}
+			if !hasEnv {
+				fmt.Println(yellow("WARN") + " no .env files found in " + ShortenPath(secretsDir))
+			} else {
+				fmt.Println(green("OK") + " secrets present")
+			}
 
-			if len(issues) > 0 {
-				fmt.Println(yellow("doctor warnings"))
-				for _, item := range issues {
-					fmt.Println("- " + item)
+			// ── Summary ──
+			fmt.Println()
+			if hasError {
+				fmt.Println(red("doctor failed"))
+				os.Exit(1)
+			}
+			if len(warnings) > 0 {
+				fmt.Println(yellow("doctor warnings") + fmt.Sprintf(" (%d)", len(warnings)))
+				for _, w := range warnings {
+					fmt.Println("  - " + w)
 				}
 				os.Exit(1)
 			}
-
 			fmt.Println(green("doctor ok"))
 			return nil
 		},
 	}
-	cmd.Flags().Bool("check-secrets", false, "Check secrets exist")
-	cmd.Flags().Bool("check-secrets-age", false, "Check secrets age")
-	cmd.Flags().Int("max-age-days", 7, "Max age in days")
+	cmd.Flags().Int("max-age-days", 7, "Max age in days for secrets")
 	return cmd
 }
 
