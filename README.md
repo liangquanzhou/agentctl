@@ -53,9 +53,15 @@ agentctl status
 
 ## Supported Agents
 
-- **Claude Code** (`~/.claude/settings.json`)
-- **Gemini CLI** (`~/.gemini/settings.json`)
-- **Codex** (`~/.codex/config.toml`)
+| Agent | Config Format | MCP Config Path |
+|-------|--------------|-----------------|
+| **Claude Code** | JSON | `~/.claude.json` |
+| **Codex** | TOML | `~/.codex/config.toml` |
+| **Gemini CLI** | JSON | `~/.gemini/settings.json` |
+| **Antigravity** | JSON | `~/.gemini/antigravity/mcp_config.json` |
+| **OpenCode** | JSON | `~/.config/opencode/opencode.json` |
+
+Custom agents can be added via TOML overrides in `~/.config/agentctl/agents/`.
 
 ## Configuration
 

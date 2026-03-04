@@ -53,9 +53,15 @@ agentctl status
 
 ## 支持的 Agent
 
-- **Claude Code** (`~/.claude/settings.json`)
-- **Gemini CLI** (`~/.gemini/settings.json`)
-- **Codex** (`~/.codex/config.toml`)
+| Agent | 配置格式 | MCP 配置路径 |
+|-------|---------|-------------|
+| **Claude Code** | JSON | `~/.claude.json` |
+| **Codex** | TOML | `~/.codex/config.toml` |
+| **Gemini CLI** | JSON | `~/.gemini/settings.json` |
+| **Antigravity** | JSON | `~/.gemini/antigravity/mcp_config.json` |
+| **OpenCode** | JSON | `~/.config/opencode/opencode.json` |
+
+可通过 `~/.config/agentctl/agents/` 下的 TOML 文件添加自定义 Agent。
 
 ## 配置结构
 
