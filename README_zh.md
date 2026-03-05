@@ -63,6 +63,26 @@ agentctl status
 
 可通过 `~/.config/agentctl/agents/` 下的 TOML 文件添加自定义 Agent。
 
+## 能力矩阵
+
+| 能力 | Claude Code | Codex | Gemini CLI | Antigravity | OpenCode |
+|------|:-----------:|:-----:|:----------:|:-----------:|:--------:|
+| **MCP** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Rules** | ✅ | ✅ | ✅ | ✅ 共享 | ✅ |
+| **Hooks** | ✅ events | ✅ notify | ✅ events | ✅ 共享 | ❌ ¹ |
+| **Commands** | ✅ | ❌ ² | ❌ ² | ❌ ² | ✅ |
+| **Ignore** | ✅ | ❌ ³ | ❌ ⁴ | ❌ ⁴ | ❌ ⁵ |
+| **Skills** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> **注释：**
+> 1. OpenCode 通过 JS/TS plugin 系统实现 hooks，非声明式 JSON，agentctl 暂不适配
+> 2. 该 Agent 原生不支持 custom commands 概念
+> 3. Codex 的 `.codexignore` 仍处于实验阶段，[行为不稳定](https://github.com/openai/codex/issues/6530)
+> 4. Gemini CLI 原生支持 `.geminiignore`（Antigravity 共享），agentctl 尚未适配
+> 5. OpenCode 复用 `.gitignore`，无独立 ignore 文件
+>
+> "共享"指 Antigravity 与 Gemini CLI 共用配置文件（`~/.gemini/GEMINI.md`、`~/.gemini/settings.json`），自动继承 rules 和 hooks。
+
 ## 配置结构
 
 默认配置目录：`~/.config/agentctl/`

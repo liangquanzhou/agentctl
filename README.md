@@ -63,6 +63,26 @@ agentctl status
 
 Custom agents can be added via TOML overrides in `~/.config/agentctl/agents/`.
 
+## Capability Matrix
+
+| Capability | Claude Code | Codex | Gemini CLI | Antigravity | OpenCode |
+|------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|
+| **MCP** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Rules** | ✅ | ✅ | ✅ | ✅ shared | ✅ |
+| **Hooks** | ✅ events | ✅ notify | ✅ events | ✅ shared | ❌ ¹ |
+| **Commands** | ✅ | ❌ ² | ❌ ² | ❌ ² | ✅ |
+| **Ignore** | ✅ | ❌ ³ | ❌ ⁴ | ❌ ⁴ | ❌ ⁵ |
+| **Skills** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+> **Notes:**
+> 1. OpenCode uses a JS/TS plugin system for hooks, not declarative JSON — not yet supported by agentctl
+> 2. Agent does not natively support custom commands
+> 3. Codex `.codexignore` is experimental and [unreliable](https://github.com/openai/codex/issues/6530)
+> 4. Gemini CLI natively supports `.geminiignore` (shared by Antigravity), but agentctl has not yet integrated it
+> 5. OpenCode reuses `.gitignore` and has no dedicated ignore file
+>
+> "shared" means Antigravity shares Gemini CLI's config files (`~/.gemini/GEMINI.md`, `~/.gemini/settings.json`), so it inherits rules and hooks automatically.
+
 ## Configuration
 
 Default config directory: `~/.config/agentctl/`
