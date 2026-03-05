@@ -453,6 +453,11 @@ func hashFile(path string) string {
 // path and its file hash. Symlinks are skipped to prevent following them
 // to unexpected locations.
 func hashDir(dir string) string {
+	// Resolve symlinks at root so WalkDir sees the real directory.
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+
 	type entry struct {
 		rel  string
 		hash string
@@ -499,6 +504,13 @@ func replaceTree(src, dst string, dryRun bool) error {
 	if dryRun {
 		return nil
 	}
+
+	// Resolve symlinks at source so WalkDir sees the real directory.
+	resolvedSrc, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return fmt.Errorf("resolve source %s: %w", src, err)
+	}
+	src = resolvedSrc
 
 	// Reject symlinked destination to prevent redirect attacks.
 	if err := tx.RejectSymlink(dst); err != nil {
