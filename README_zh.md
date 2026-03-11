@@ -70,13 +70,13 @@ agentctl status
 | **MCP** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Rules** | ✅ | ✅ | ✅ | ✅ 共享 | ✅ |
 | **Hooks** | ✅ events | ✅ notify | ✅ events | ✅ 共享 | ❌ ¹ |
-| **Commands** | ✅ | ❌ ² | ❌ ² | ❌ ² | ✅ |
+| **Commands** | ✅ | ❌ ² | ✅ .toml | ❌ ² | ✅ |
 | **Ignore** | ✅ | ❌ ³ | ❌ ⁴ | ❌ ⁴ | ❌ ⁵ |
 | **Skills** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 > **注释：**
 > 1. OpenCode 通过 JS/TS plugin 系统实现 hooks，非声明式 JSON，agentctl 暂不适配
-> 2. 该 Agent 原生不支持 custom commands 概念
+> 2. 该 Agent 原生不支持 custom commands 概念（Gemini CLI 已支持，通过 `format = "toml"` 自动转换 `.md` → `.toml`）
 > 3. Codex 的 `.codexignore` 仍处于实验阶段，[行为不稳定](https://github.com/openai/codex/issues/6530)
 > 4. Gemini CLI 的 `.geminiignore` 仅支持项目级，[全局支持尚未确认](https://github.com/google-gemini/gemini-cli/issues/4925)
 > 5. OpenCode 复用 `.gitignore`，无独立 ignore 文件

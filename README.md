@@ -70,13 +70,13 @@ Custom agents can be added via TOML overrides in `~/.config/agentctl/agents/`.
 | **MCP** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Rules** | ✅ | ✅ | ✅ | ✅ shared | ✅ |
 | **Hooks** | ✅ events | ✅ notify | ✅ events | ✅ shared | ❌ ¹ |
-| **Commands** | ✅ | ❌ ² | ❌ ² | ❌ ² | ✅ |
+| **Commands** | ✅ | ❌ ² | ✅ .toml | ❌ ² | ✅ |
 | **Ignore** | ✅ | ❌ ³ | ❌ ⁴ | ❌ ⁴ | ❌ ⁵ |
 | **Skills** | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 > **Notes:**
 > 1. OpenCode uses a JS/TS plugin system for hooks, not declarative JSON — not yet supported by agentctl
-> 2. Agent does not natively support custom commands
+> 2. Agent does not natively support custom commands (Gemini CLI now supported via `format = "toml"` auto-conversion from `.md` → `.toml`)
 > 3. Codex `.codexignore` is experimental and [unreliable](https://github.com/openai/codex/issues/6530)
 > 4. Gemini CLI `.geminiignore` is project-level only; [global support is unconfirmed](https://github.com/google-gemini/gemini-cli/issues/4925)
 > 5. OpenCode reuses `.gitignore` and has no dedicated ignore file
