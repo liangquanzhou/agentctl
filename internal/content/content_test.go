@@ -588,8 +588,8 @@ func TestConvertMdToToml_WithFrontMatter(t *testing.T) {
 	if !strings.HasPrefix(result, "description = ") {
 		t.Error("should start with description")
 	}
-	if !strings.Contains(result, "prompt = \"\"\"") {
-		t.Error("should contain TOML multi-line string")
+	if !strings.Contains(result, "prompt = '''") {
+		t.Error("should contain TOML multi-line literal string")
 	}
 }
 

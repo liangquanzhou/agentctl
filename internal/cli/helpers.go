@@ -106,6 +106,7 @@ func addSkillsFlags(cmd *cobra.Command) {
 	cmd.Flags().String("antigravity-dir", defaults["antigravity"], "Antigravity skills dir")
 	cmd.Flags().String("opencode-dir", defaults["opencode"], "OpenCode skills dir")
 	cmd.Flags().String("openclaw-dir", defaults["openclaw"], "OpenClaw skills dir")
+	cmd.Flags().String("trae-cn-dir", defaults["trae-cn"], "Trae CN skills dir")
 }
 
 func getSkillsSource(cmd *cobra.Command) string {
@@ -115,7 +116,7 @@ func getSkillsSource(cmd *cobra.Command) string {
 
 func getSkillsTargets(cmd *cobra.Command) map[string]string {
 	targets := make(map[string]string)
-	for _, name := range []string{"claude", "codex", "gemini", "antigravity", "opencode", "openclaw"} {
+	for _, name := range []string{"claude", "codex", "gemini", "antigravity", "opencode", "openclaw", "trae-cn"} {
 		val, _ := cmd.Flags().GetString(name + "-dir")
 		if val != "" {
 			targets[name] = val

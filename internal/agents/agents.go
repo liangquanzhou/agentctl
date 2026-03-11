@@ -111,6 +111,18 @@ func builtinAgents() map[string]AgentDefinition {
 			SkillsTarget:   filepath.Join(h, ".openclaw", "skills"),
 			BinaryNames:    []string{"openclaw"},
 		},
+		"trae-cn": {
+			Name:           "trae-cn",
+			Aliases:        []string{},
+			DisplayOrder:   7,
+			MCPFileType:    "json",
+			MCPPath:        filepath.Join(h, "Library", "Application Support", "Trae CN", "User", "mcp.json"),
+			MCPInjectKey:   "mcpServers",
+			MCPManagedKeys: []string{"mcpServers"},
+			HooksFormat:    "",
+			SkillsTarget:   filepath.Join(h, ".trae-cn", "skills"),
+			BinaryNames:    []string{},
+		},
 	}
 }
 

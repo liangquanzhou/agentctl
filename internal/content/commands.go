@@ -31,23 +31,28 @@ var validCommandFormats = map[string]bool{
 // Output (.toml):
 //
 //	description = "Some description"
-//	prompt = """
+//	prompt = '''
 //	Prompt body with {{args}} placeholder
-//	"""
+//	'''
 func convertMdToToml(mdContent string) string {
 	description, body := parseFrontMatter(mdContent)
 
 	// Map Claude Code placeholder to Gemini CLI placeholder
 	body = strings.ReplaceAll(body, "$ARGUMENTS", "{{args}}")
 
+	// Use TOML multi-line literal strings (''') so that backslashes and
+	// double quotes in Markdown content are preserved verbatim.
+	// The only disallowed sequence inside ''' is ''' itself.
+	escaped := strings.ReplaceAll(body, "'''", "' ' '")
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "description = %q\n", description)
-	sb.WriteString("prompt = \"\"\"\n")
-	sb.WriteString(body)
-	if !strings.HasSuffix(body, "\n") {
+	sb.WriteString("prompt = '''\n")
+	sb.WriteString(escaped)
+	if !strings.HasSuffix(escaped, "\n") {
 		sb.WriteString("\n")
 	}
-	sb.WriteString("\"\"\"\n")
+	sb.WriteString("'''\n")
 	return sb.String()
 }
 
