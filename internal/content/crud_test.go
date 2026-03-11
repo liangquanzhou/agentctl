@@ -656,7 +656,7 @@ func TestCommandsAdd_NewAgent(t *testing.T) {
 	htmp := homeTmpDir(t)
 	targetDir := filepath.Join(htmp, "commands")
 
-	data, err := CommandsAdd(tmp, "claude", targetDir)
+	data, err := CommandsAdd(tmp, "claude", targetDir, "")
 	if err != nil {
 		t.Fatalf("CommandsAdd failed: %v", err)
 	}
@@ -682,7 +682,7 @@ func TestCommandsAdd_DuplicateReject(t *testing.T) {
 		},
 	})
 
-	_, err := CommandsAdd(tmp, "claude", targetDir)
+	_, err := CommandsAdd(tmp, "claude", targetDir, "")
 	if err == nil {
 		t.Fatal("should reject duplicate agent")
 	}

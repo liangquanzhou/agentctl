@@ -35,9 +35,13 @@ func CommandsList(configDir string) (map[string]any, error) {
 		if !ok {
 			continue
 		}
-		agents[name] = map[string]any{
+		info := map[string]any{
 			"target_dir": tx.GetString(cmdCfg, "target_dir", ""),
 		}
+		if f := tx.GetString(cmdCfg, "format", ""); f != "" && f != "md" {
+			info["format"] = f
+		}
+		agents[name] = info
 	}
 
 	return map[string]any{
@@ -47,7 +51,10 @@ func CommandsList(configDir string) (map[string]any, error) {
 }
 
 // CommandsAdd registers an agent's command sync target directory.
-func CommandsAdd(configDir, agent, targetDir string) (map[string]any, error) {
+// The format parameter controls how source .md files are written to the target:
+//   - "" or "md": plain copy (no conversion)
+//   - "toml": convert .md → .toml (for Gemini CLI)
+func CommandsAdd(configDir, agent, targetDir, format string) (map[string]any, error) {
 	cfg, err := loadCommandsConfig(configDir)
 	if err != nil {
 		return nil, err
@@ -68,18 +75,31 @@ func CommandsAdd(configDir, agent, targetDir string) (map[string]any, error) {
 		return nil, fmt.Errorf("invalid target_dir: %w", err)
 	}
 
-	agents[agent] = map[string]any{"target_dir": targetDir}
+	// Validate format
+	if !validCommandFormats[format] {
+		return nil, fmt.Errorf("invalid format: %q (expected md or toml)", format)
+	}
+
+	agentCfg := map[string]any{"target_dir": targetDir}
+	if format != "" && format != "md" {
+		agentCfg["format"] = format
+	}
+	agents[agent] = agentCfg
 
 	configPath := filepath.Join(configDir, "commands", "config.json")
 	if err := tx.WriteJSONAtomic(configPath, cfg); err != nil {
 		return nil, fmt.Errorf("write config: %w", err)
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"op":         "add",
 		"agent":      agent,
 		"target_dir": targetDir,
-	}, nil
+	}
+	if format != "" && format != "md" {
+		result["format"] = format
+	}
+	return result, nil
 }
 
 // CommandsRm removes an agent from commands config.

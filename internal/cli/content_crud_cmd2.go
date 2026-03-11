@@ -53,14 +53,18 @@ func printCommandsListText(data map[string]any) {
 	}
 
 	agentNames := sortedKeys(agentsMap)
-	headers := []string{"Agent", "Target Dir"}
+	headers := []string{"Agent", "Target Dir", "Format"}
 	var rows [][]string
 	for _, name := range agentNames {
 		info, _ := agentsMap[name].(map[string]any)
 		if info == nil {
 			continue
 		}
-		rows = append(rows, []string{name, fmt.Sprint(info["target_dir"])})
+		format := "md"
+		if f, ok := info["format"].(string); ok && f != "" {
+			format = f
+		}
+		rows = append(rows, []string{name, fmt.Sprint(info["target_dir"]), format})
 	}
 	PrintTable("Commands Agents", headers, rows)
 }
@@ -73,9 +77,10 @@ func newCommandsAddCmd() *cobra.Command {
 			configDir, _ := cmd.Flags().GetString("config-dir")
 			agent, _ := cmd.Flags().GetString("agent")
 			targetDir, _ := cmd.Flags().GetString("target-dir")
+			format, _ := cmd.Flags().GetString("format")
 			output, _ := cmd.Flags().GetString("output")
 
-			data, err := content.CommandsAdd(configDir, agent, targetDir)
+			data, err := content.CommandsAdd(configDir, agent, targetDir, format)
 			if err != nil {
 				fmt.Println(red("commands add failed") + ": " + err.Error())
 				os.Exit(1)
@@ -85,8 +90,12 @@ func newCommandsAddCmd() *cobra.Command {
 				PrintJSON(data)
 				return nil
 			}
-			fmt.Printf("%s agent=%s target_dir=%s\n",
+			msg := fmt.Sprintf("%s agent=%s target_dir=%s",
 				green("commands add done"), data["agent"], data["target_dir"])
+			if f, ok := data["format"]; ok {
+				msg += fmt.Sprintf(" format=%s", f)
+			}
+			fmt.Println(msg)
 			return nil
 		},
 	}
@@ -94,6 +103,7 @@ func newCommandsAddCmd() *cobra.Command {
 	cmd.MarkFlagRequired("agent")
 	cmd.Flags().String("target-dir", "", "Target directory path")
 	cmd.MarkFlagRequired("target-dir")
+	cmd.Flags().String("format", "", "Target command format: md (default) or toml")
 	cmd.Flags().String("output", "text", "Output format: text|json")
 	return cmd
 }

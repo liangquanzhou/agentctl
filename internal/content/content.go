@@ -275,7 +275,8 @@ func ContentPlan(configDir string, opts PlanOpts) (map[string]any, error) {
 			if err != nil {
 				return nil, err
 			}
-			syncItems := dirSyncPlan(commandsDir, targetDir, agent, "commands")
+			format := tx.GetString(cmdCfg, "format", "")
+			syncItems := dirSyncPlan(commandsDir, targetDir, agent, "commands", format)
 			items = append(items, syncItems...)
 		}
 	}

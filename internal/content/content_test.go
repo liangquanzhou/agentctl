@@ -436,7 +436,7 @@ func TestDirSyncPlan_DetectsNewFiles(t *testing.T) {
 	writeText(t, filepath.Join(src, "skill-a.md"), "# Skill A")
 	writeText(t, filepath.Join(src, "skill-b.md"), "# Skill B")
 
-	items := dirSyncPlan(src, tgt, "test-agent", "commands")
+	items := dirSyncPlan(src, tgt, "test-agent", "commands", "")
 	if len(items) != 2 {
 		t.Fatalf("dirSyncPlan returned %d items, want 2", len(items))
 	}
@@ -457,7 +457,7 @@ func TestDirSyncPlan_DetectsNoChange(t *testing.T) {
 	writeText(t, filepath.Join(src, "skill-a.md"), "# Skill A")
 	writeText(t, filepath.Join(tgt, "skill-a.md"), "# Skill A") // identical
 
-	items := dirSyncPlan(src, tgt, "test-agent", "commands")
+	items := dirSyncPlan(src, tgt, "test-agent", "commands", "")
 	if len(items) != 1 {
 		t.Fatalf("dirSyncPlan returned %d items, want 1", len(items))
 	}
@@ -474,7 +474,7 @@ func TestDirSyncPlan_SkipsHiddenAndDirs(t *testing.T) {
 	os.MkdirAll(filepath.Join(src, "subdir"), 0o755)
 	writeText(t, filepath.Join(src, "visible.md"), "# Visible")
 
-	items := dirSyncPlan(src, tgt, "test-agent", "commands")
+	items := dirSyncPlan(src, tgt, "test-agent", "commands", "")
 	if len(items) != 1 {
 		t.Fatalf("dirSyncPlan returned %d items, want 1 (only visible.md)", len(items))
 	}
@@ -491,7 +491,7 @@ func TestDirSyncPlan_DetectsStaleFiles(t *testing.T) {
 	writeText(t, filepath.Join(tgt, "keep.md"), "# keep")
 	writeText(t, filepath.Join(tgt, "orphan.md"), "# orphan")
 
-	items := dirSyncPlan(src, tgt, "test-agent", "commands")
+	items := dirSyncPlan(src, tgt, "test-agent", "commands", "")
 
 	staleItems := make([]map[string]any, 0)
 	for _, item := range items {
@@ -512,7 +512,7 @@ func TestDirSyncPlan_StaleWhenSourceMissing(t *testing.T) {
 	writeText(t, filepath.Join(tgt, "orphan.md"), "# orphan")
 
 	// Source dir does not exist
-	items := dirSyncPlan("/nonexistent/source", tgt, "test-agent", "commands")
+	items := dirSyncPlan("/nonexistent/source", tgt, "test-agent", "commands", "")
 
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
@@ -529,9 +529,173 @@ func TestDirSyncPlan_SkipsConfigJSON(t *testing.T) {
 	writeText(t, filepath.Join(src, "config.json"), `{"agents":{}}`)
 	writeText(t, filepath.Join(src, "real.md"), "# Real")
 
-	items := dirSyncPlan(src, tgt, "test-agent", "commands")
+	items := dirSyncPlan(src, tgt, "test-agent", "commands", "")
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item (config.json should be skipped), got %d", len(items))
+	}
+}
+
+// ── parseFrontMatter ─────────────────────────────────────────────────
+
+func TestParseFrontMatter_WithDescription(t *testing.T) {
+	md := "---\ndescription: Gemini 调用\n---\nPrompt body here\n"
+	desc, body := parseFrontMatter(md)
+	if desc != "Gemini 调用" {
+		t.Errorf("description = %q, want 'Gemini 调用'", desc)
+	}
+	if body != "Prompt body here\n" {
+		t.Errorf("body = %q, want 'Prompt body here\\n'", body)
+	}
+}
+
+func TestParseFrontMatter_NoFrontMatter(t *testing.T) {
+	md := "# Just a heading\nSome content\n"
+	desc, body := parseFrontMatter(md)
+	if desc != "" {
+		t.Errorf("description should be empty, got %q", desc)
+	}
+	if body != md {
+		t.Errorf("body should be the entire content")
+	}
+}
+
+func TestParseFrontMatter_IncompleteDelimiter(t *testing.T) {
+	md := "---\ndescription: test\nno closing delimiter"
+	desc, body := parseFrontMatter(md)
+	if desc != "" {
+		t.Errorf("incomplete front matter should return empty desc, got %q", desc)
+	}
+	if body != md {
+		t.Errorf("body should be entire content for incomplete front matter")
+	}
+}
+
+// ── convertMdToToml ─────────────────────────────────────────────────
+
+func TestConvertMdToToml_WithFrontMatter(t *testing.T) {
+	md := "---\ndescription: Gemini 调用\n---\n使用 Gemini CLI 处理：\n$ARGUMENTS\n"
+	result := convertMdToToml(md)
+
+	if !strings.Contains(result, `description = "Gemini 调用"`) {
+		t.Errorf("should contain description, got:\n%s", result)
+	}
+	if !strings.Contains(result, "{{args}}") {
+		t.Error("should replace $ARGUMENTS with {{args}}")
+	}
+	if strings.Contains(result, "$ARGUMENTS") {
+		t.Error("should not contain $ARGUMENTS after conversion")
+	}
+	if !strings.HasPrefix(result, "description = ") {
+		t.Error("should start with description")
+	}
+	if !strings.Contains(result, "prompt = \"\"\"") {
+		t.Error("should contain TOML multi-line string")
+	}
+}
+
+func TestConvertMdToToml_NoFrontMatter(t *testing.T) {
+	md := "# Just a prompt\n$ARGUMENTS\n"
+	result := convertMdToToml(md)
+
+	if !strings.Contains(result, `description = ""`) {
+		t.Errorf("empty front matter should yield empty description, got:\n%s", result)
+	}
+	if !strings.Contains(result, "# Just a prompt") {
+		t.Error("body should be preserved")
+	}
+}
+
+// ── targetFileName ──────────────────────────────────────────────────
+
+func TestTargetFileName_MdFormat(t *testing.T) {
+	if name := targetFileName("gemini.md", ""); name != "gemini.md" {
+		t.Errorf("empty format should keep name, got %q", name)
+	}
+	if name := targetFileName("gemini.md", "md"); name != "gemini.md" {
+		t.Errorf("md format should keep name, got %q", name)
+	}
+}
+
+func TestTargetFileName_TomlFormat(t *testing.T) {
+	if name := targetFileName("gemini.md", "toml"); name != "gemini.toml" {
+		t.Errorf("toml format should convert extension, got %q", name)
+	}
+}
+
+func TestTargetFileName_NonMdSource(t *testing.T) {
+	if name := targetFileName("readme.txt", "toml"); name != "readme.txt" {
+		t.Errorf("non-.md files should keep name even with toml format, got %q", name)
+	}
+}
+
+// ── dirSyncPlan with format ─────────────────────────────────────────
+
+func TestDirSyncPlan_TomlFormat_ConvertsExtension(t *testing.T) {
+	src := t.TempDir()
+	tgt := t.TempDir()
+
+	writeText(t, filepath.Join(src, "greet.md"), "---\ndescription: Greet\n---\nHello $ARGUMENTS\n")
+
+	items := dirSyncPlan(src, tgt, "gemini-cli", "commands", "toml")
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if !strings.HasSuffix(items[0]["path"].(string), "greet.toml") {
+		t.Errorf("target should be .toml, got %s", items[0]["path"])
+	}
+	if items[0]["format"] != "toml" {
+		t.Errorf("format should be stored in item, got %v", items[0]["format"])
+	}
+}
+
+func TestDirSyncPlan_TomlFormat_DetectsNoChange(t *testing.T) {
+	src := t.TempDir()
+	tgt := t.TempDir()
+
+	md := "---\ndescription: Greet\n---\nHello {{args}}\n"
+	writeText(t, filepath.Join(src, "greet.md"), md)
+	// Write the expected converted content
+	converted := convertMdToToml(md)
+	writeText(t, filepath.Join(tgt, "greet.toml"), converted)
+
+	items := dirSyncPlan(src, tgt, "gemini-cli", "commands", "toml")
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0]["changed"] != false {
+		t.Error("matching converted content should not be marked as changed")
+	}
+}
+
+func TestDirSyncPlan_TomlFormat_StaleOldMdInTarget(t *testing.T) {
+	src := t.TempDir()
+	tgt := t.TempDir()
+
+	writeText(t, filepath.Join(src, "greet.md"), "---\ndescription: Greet\n---\nHello\n")
+	// Old .md file left in target from before format switch
+	writeText(t, filepath.Join(tgt, "greet.md"), "# old md file")
+
+	items := dirSyncPlan(src, tgt, "gemini-cli", "commands", "toml")
+
+	var staleCount, newCount int
+	for _, item := range items {
+		if stale, ok := item["stale"].(bool); ok && stale {
+			staleCount++
+			if !strings.HasSuffix(item["path"].(string), "greet.md") {
+				t.Errorf("stale item should be old .md, got %s", item["path"])
+			}
+		} else {
+			newCount++
+			if !strings.HasSuffix(item["path"].(string), "greet.toml") {
+				t.Errorf("new item should be .toml, got %s", item["path"])
+			}
+		}
+	}
+	if staleCount != 1 {
+		t.Errorf("expected 1 stale item (old .md), got %d", staleCount)
+	}
+	if newCount != 1 {
+		t.Errorf("expected 1 new item (.toml), got %d", newCount)
 	}
 }
 
