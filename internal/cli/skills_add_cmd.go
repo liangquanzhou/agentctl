@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"agentctl/internal/skills"
 
@@ -86,11 +87,22 @@ func newSkillsSearchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search for skills",
-		Long: `Search for skills using the 'skills' CLI tool if installed,
-otherwise shows instructions for manual search.`,
+		Long: `Search for skills. By default searches the public skills.sh marketplace.
+Use --source to search a private registry defined in skills/sources.json.
+Use --source all to search all registered private sources.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := skills.Search(args[0])
+			configDir, _ := cmd.Flags().GetString("config-dir")
+			source, _ := cmd.Flags().GetString("source")
+			query := args[0]
+
+			// Private source search
+			if source != "" {
+				return searchPrivateSource(configDir, source, query)
+			}
+
+			// Public marketplace search (skills CLI)
+			result, err := skills.Search(query)
 			if err != nil {
 				fmt.Println(red("skills search failed") + ": " + err.Error())
 				os.Exit(1)
@@ -99,7 +111,69 @@ otherwise shows instructions for manual search.`,
 			return nil
 		},
 	}
+	cmd.Flags().String("source", "", "Search a private registry (name from sources.json, or 'all')")
 	return cmd
+}
+
+func searchPrivateSource(configDir, source, query string) error {
+	cfg, err := skills.LoadSources(configDir)
+	if err != nil {
+		return err
+	}
+	if len(cfg.Registries) == 0 {
+		fmt.Println(yellow("No registries configured") + " in skills/sources.json")
+		return nil
+	}
+
+	// Determine which registries to search
+	var toSearch map[string]skills.Registry
+	if source == "all" {
+		toSearch = cfg.Registries
+	} else {
+		reg, ok := cfg.Registries[source]
+		if !ok {
+			available := make([]string, 0, len(cfg.Registries))
+			for name := range cfg.Registries {
+				available = append(available, name)
+			}
+			return fmt.Errorf("registry %q not found (available: %s)", source, strings.Join(available, ", "))
+		}
+		toSearch = map[string]skills.Registry{source: reg}
+	}
+
+	totalResults := 0
+	for name, reg := range toSearch {
+		desc := ""
+		if reg.Description != "" {
+			desc = " (" + reg.Description + ")"
+		}
+		fmt.Printf("%s%s\n", bold(name), desc)
+
+		results, err := skills.SearchSource(reg, name, query)
+		if err != nil {
+			fmt.Printf("  %s: %v\n\n", red("error"), err)
+			continue
+		}
+
+		if len(results) == 0 {
+			fmt.Println("  (no matching skills)")
+		} else {
+			for _, r := range results {
+				desc := ""
+				if r.Description != "" {
+					desc = " - " + r.Description
+				}
+				fmt.Printf("  %s%s\n", green(r.Name), desc)
+			}
+		}
+		fmt.Println()
+		totalResults += len(results)
+	}
+
+	if totalResults > 0 {
+		fmt.Println("Install with: agentctl skills add <registry-url>")
+	}
+	return nil
 }
 
 func newSkillsRemoveCmd() *cobra.Command {

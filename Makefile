@@ -1,4 +1,4 @@
-.PHONY: build test clean install lint
+.PHONY: build test clean install lint hooks
 
 BINARY := agentctl
 BUILD_DIR := ./build
@@ -19,3 +19,8 @@ install: build
 
 lint:
 	go vet ./...
+
+hooks:
+	cp scripts/pre-push-release-review.sh .git/hooks/pre-push
+	chmod +x .git/hooks/pre-push
+	@echo "hooks installed"

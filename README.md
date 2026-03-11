@@ -46,7 +46,7 @@ agentctl status
 | `doctor` | Health check (secrets, dependencies) |
 | `rollback` | Rollback last apply |
 | `mcp list\|add\|rm\|plan\|apply\|status` | MCP server management |
-| `skills add\|search\|remove\|sync\|list\|status\|pull` | Skills management (GitHub download + sync) |
+| `skills add\|search\|remove\|sync\|list\|status\|pull` | Skills management (download from any git host + sync) |
 | `rules\|hooks\|commands\|ignore` | Content management per type |
 | `drift` | Check MCP configuration drift |
 | `reconcile` | Fix MCP drift |
@@ -90,13 +90,34 @@ Default config directory: `~/.config/agentctl/`
 
 ```
 ~/.config/agentctl/
-├── mcp.json          # MCP server registry
+├── mcp/              # MCP server registry + profiles
 ├── rules/            # Rule templates (CLAUDE.md, etc.)
 ├── hooks/            # Hook configurations
 ├── commands/         # Custom commands
 ├── ignore/           # Ignore patterns
-├── skills/           # Skill source files
+├── skills/           # Skill source files + sources.json (private registries)
 └── secrets/          # Encrypted secrets (age)
+```
+
+### Private Skill Registries
+
+Add private skill sources (GitLab, self-hosted git) to `skills/sources.json`:
+
+```json
+{
+  "registries": {
+    "team": {
+      "url": "git@gitlab.example.com:team/agent-skills.git",
+      "description": "Team shared skills"
+    }
+  }
+}
+```
+
+```bash
+agentctl skills search "query" --source team   # Search private registry
+agentctl skills search "" --source all          # List all skills from all registries
+agentctl skills add git@gitlab.example.com:team/agent-skills.git --all  # Install
 ```
 
 ## How It Works

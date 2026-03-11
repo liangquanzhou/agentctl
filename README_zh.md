@@ -90,13 +90,34 @@ agentctl status
 
 ```
 ~/.config/agentctl/
-├── mcp.json          # MCP Server 注册表
+├── mcp/              # MCP Server 注册表 + profiles
 ├── rules/            # Rule 模板（CLAUDE.md 等）
 ├── hooks/            # Hook 配置
 ├── commands/         # 自定义命令
 ├── ignore/           # Ignore 规则
-├── skills/           # Skill 源文件
+├── skills/           # Skill 源文件 + sources.json（私有源注册）
 └── secrets/          # 加密密钥（age）
+```
+
+### 私有 Skill 源
+
+在 `skills/sources.json` 中注册私有 git 源（GitLab、自建 git 等）：
+
+```json
+{
+  "registries": {
+    "team": {
+      "url": "git@gitlab.example.com:team/agent-skills.git",
+      "description": "团队共享 skills"
+    }
+  }
+}
+```
+
+```bash
+agentctl skills search "关键词" --source team   # 搜索私有源
+agentctl skills search "" --source all           # 列出所有私有源中的 skill
+agentctl skills add git@gitlab.example.com:team/agent-skills.git --all  # 安装
 ```
 
 ## 工作原理

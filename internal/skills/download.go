@@ -25,7 +25,7 @@ type SkillMeta struct {
 // installed skill. If installAll is true, all discovered skills are installed
 // without prompting; otherwise only a single-skill repo is auto-installed.
 func Download(source string, configDir string, installAll bool) ([]SkillMeta, error) {
-	repoURL := normalizeGitHubURL(source)
+	repoURL := normalizeGitURL(source)
 	if repoURL == "" {
 		return nil, fmt.Errorf("invalid source: %q (expected GitHub URL or user/repo)", source)
 	}
@@ -164,37 +164,40 @@ type skillCandidate struct {
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
-// normalizeGitHubURL converts various GitHub reference formats to a
-// clone-able HTTPS URL. Returns empty string if the input is not
-// recognized.
-func normalizeGitHubURL(source string) string {
+// normalizeGitURL converts various git reference formats to a clone-able URL.
+// Supports GitHub, GitLab, and any git host. Returns empty string if the
+// input is not recognized as a valid git source.
+func normalizeGitURL(source string) string {
 	s := strings.TrimSpace(source)
 
-	// Strip trailing .git
-	s = strings.TrimSuffix(s, ".git")
-
-	// Full HTTPS URL
-	if strings.HasPrefix(s, "https://github.com/") {
-		return s + ".git"
+	// Already a full HTTPS/HTTP URL → use as-is
+	if strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://") {
+		if !strings.HasSuffix(s, ".git") {
+			s += ".git"
+		}
+		return s
 	}
 
-	// github.com/user/repo (no scheme)
-	if strings.HasPrefix(s, "github.com/") {
+	// SSH URL: git@host:user/repo or git@host:user/repo.git
+	if strings.HasPrefix(s, "git@") {
+		if !strings.HasSuffix(s, ".git") {
+			s += ".git"
+		}
+		return s
+	}
+
+	// host.com/user/repo (has dot in first segment → treat as hostname)
+	parts := strings.SplitN(s, "/", 3)
+	if len(parts) >= 2 && strings.Contains(parts[0], ".") {
+		s = strings.TrimSuffix(s, ".git")
 		return "https://" + s + ".git"
 	}
 
-	// user/repo shorthand (must have exactly one slash, no dots before it)
-	parts := strings.SplitN(s, "/", 3)
+	// user/repo shorthand → default to GitHub
 	if len(parts) == 2 && parts[0] != "" && parts[1] != "" &&
-		!strings.Contains(parts[0], ".") &&
 		!strings.Contains(parts[0], ":") {
+		s = strings.TrimSuffix(s, ".git")
 		return "https://github.com/" + s + ".git"
-	}
-
-	// SSH URL: git@github.com:user/repo
-	if strings.HasPrefix(s, "git@github.com:") {
-		path := strings.TrimPrefix(s, "git@github.com:")
-		return "https://github.com/" + path + ".git"
 	}
 
 	return ""

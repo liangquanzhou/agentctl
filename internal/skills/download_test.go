@@ -6,68 +6,88 @@ import (
 	"testing"
 )
 
-// ── normalizeGitHubURL ───────────────────────────────────────────────
+// ── normalizeGitURL ─────────────────────────────────────────────────
 
-func TestNormalizeGitHubURL_FullHTTPS(t *testing.T) {
+func TestNormalizeGitURL_FullHTTPS(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
 	}{
 		{"https://github.com/user/repo", "https://github.com/user/repo.git"},
 		{"https://github.com/user/repo.git", "https://github.com/user/repo.git"},
+		{"https://git.xiaojukeji.com/team/skills", "https://git.xiaojukeji.com/team/skills.git"},
+		{"https://gitlab.com/org/repo.git", "https://gitlab.com/org/repo.git"},
+		{"http://internal.host/group/repo", "http://internal.host/group/repo.git"},
 	}
 	for _, tt := range tests {
-		got := normalizeGitHubURL(tt.input)
+		got := normalizeGitURL(tt.input)
 		if got != tt.want {
-			t.Errorf("normalizeGitHubURL(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("normalizeGitURL(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
 
-func TestNormalizeGitHubURL_NoScheme(t *testing.T) {
-	got := normalizeGitHubURL("github.com/user/repo")
-	want := "https://github.com/user/repo.git"
-	if got != want {
-		t.Errorf("normalizeGitHubURL(github.com/user/repo) = %q, want %q", got, want)
+func TestNormalizeGitURL_NoScheme(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"github.com/user/repo", "https://github.com/user/repo.git"},
+		{"gitlab.com/org/repo", "https://gitlab.com/org/repo.git"},
+		{"git.xiaojukeji.com/team/skills", "https://git.xiaojukeji.com/team/skills.git"},
+	}
+	for _, tt := range tests {
+		got := normalizeGitURL(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeGitURL(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
 
-func TestNormalizeGitHubURL_Shorthand(t *testing.T) {
-	got := normalizeGitHubURL("user/repo")
+func TestNormalizeGitURL_Shorthand(t *testing.T) {
+	got := normalizeGitURL("user/repo")
 	want := "https://github.com/user/repo.git"
 	if got != want {
-		t.Errorf("normalizeGitHubURL(user/repo) = %q, want %q", got, want)
+		t.Errorf("normalizeGitURL(user/repo) = %q, want %q", got, want)
 	}
 }
 
-func TestNormalizeGitHubURL_SSH(t *testing.T) {
-	got := normalizeGitHubURL("git@github.com:user/repo")
-	want := "https://github.com/user/repo.git"
-	if got != want {
-		t.Errorf("normalizeGitHubURL(git@github.com:user/repo) = %q, want %q", got, want)
+func TestNormalizeGitURL_SSH(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"git@github.com:user/repo", "git@github.com:user/repo.git"},
+		{"git@git.xiaojukeji.com:team/skills", "git@git.xiaojukeji.com:team/skills.git"},
+		{"git@gitlab.com:org/repo.git", "git@gitlab.com:org/repo.git"},
+	}
+	for _, tt := range tests {
+		got := normalizeGitURL(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeGitURL(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
 
-func TestNormalizeGitHubURL_Invalid(t *testing.T) {
+func TestNormalizeGitURL_Invalid(t *testing.T) {
 	invalids := []string{
 		"",
 		"just-a-word",
-		"http://example.com/repo",
 		"/absolute/path",
 	}
 	for _, input := range invalids {
-		got := normalizeGitHubURL(input)
+		got := normalizeGitURL(input)
 		if got != "" {
-			t.Errorf("normalizeGitHubURL(%q) = %q, want empty", input, got)
+			t.Errorf("normalizeGitURL(%q) = %q, want empty", input, got)
 		}
 	}
 }
 
-func TestNormalizeGitHubURL_TrimsWhitespace(t *testing.T) {
-	got := normalizeGitHubURL("  user/repo  ")
+func TestNormalizeGitURL_TrimsWhitespace(t *testing.T) {
+	got := normalizeGitURL("  user/repo  ")
 	want := "https://github.com/user/repo.git"
 	if got != want {
-		t.Errorf("normalizeGitHubURL with whitespace = %q, want %q", got, want)
+		t.Errorf("normalizeGitURL with whitespace = %q, want %q", got, want)
 	}
 }
 
