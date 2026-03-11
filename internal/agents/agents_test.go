@@ -15,10 +15,10 @@ func fixturesDir() string {
 
 // ── Builtins ─────────────────────────────────────────────────────────
 
-func TestBuiltinsContainAllFiveAgents(t *testing.T) {
+func TestBuiltinsContainAllAgents(t *testing.T) {
 	builtins := builtinAgents()
 
-	expected := []string{"claude-code", "codex", "gemini-cli", "antigravity", "opencode"}
+	expected := []string{"claude-code", "codex", "gemini-cli", "antigravity", "opencode", "openclaw"}
 	for _, name := range expected {
 		if _, ok := builtins[name]; !ok {
 			t.Errorf("builtinAgents() missing expected agent %q", name)
@@ -104,9 +104,9 @@ func TestLoadAgentRegistry_TOMLAddsNewAgent(t *testing.T) {
 func TestLoadAgentRegistry_NonOverriddenBuiltinsPreserved(t *testing.T) {
 	registry := LoadAgentRegistry(fixturesDir())
 
-	// claude-code, gemini-cli, antigravity, opencode should be unchanged builtins.
+	// claude-code, gemini-cli, antigravity, opencode, openclaw should be unchanged builtins.
 	builtins := builtinAgents()
-	for _, name := range []string{"claude-code", "gemini-cli", "antigravity", "opencode"} {
+	for _, name := range []string{"claude-code", "gemini-cli", "antigravity", "opencode", "openclaw"} {
 		got, ok := registry[name]
 		if !ok {
 			t.Errorf("registry missing builtin %q", name)
@@ -257,8 +257,8 @@ func TestBuildDisplayOrder_Sorted(t *testing.T) {
 		t.Fatalf("BuildDisplayOrder returned %d items, want %d", len(order), len(registry))
 	}
 
-	// Builtins have display_order 1..5, so expected order:
-	expected := []string{"claude-code", "codex", "gemini-cli", "antigravity", "opencode"}
+	// Builtins have display_order 1..6, so expected order:
+	expected := []string{"claude-code", "codex", "gemini-cli", "antigravity", "opencode", "openclaw"}
 	for i, name := range expected {
 		if order[i] != name {
 			t.Errorf("BuildDisplayOrder[%d] = %q, want %q", i, order[i], name)

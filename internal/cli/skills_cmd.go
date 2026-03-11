@@ -63,7 +63,9 @@ func newSkillsStatusCmd() *cobra.Command {
 				targets = filterSkillsTargets(targets, targetFilter)
 			}
 
-			data := skills.SkillsStatus(sourceDir, targets)
+			configDir := DefaultConfigDir()
+			skillsCfg := skills.LoadSkillsConfig(configDir)
+			data := skills.SkillsStatus(sourceDir, targets, skillsCfg)
 
 			if output == "json" {
 				PrintJSON(data)
@@ -123,7 +125,9 @@ func runSkillsSync(cmd *cobra.Command, args []string) error {
 		targets = filterSkillsTargets(targets, targetFilter)
 	}
 
-	data := skills.SkillsSync(sourceDir, targets, stateDir, dryRun)
+	configDir := DefaultConfigDir()
+	skillsCfg := skills.LoadSkillsConfig(configDir)
+	data := skills.SkillsSync(sourceDir, targets, stateDir, dryRun, skillsCfg)
 
 	if output == "json" {
 		PrintJSON(data)

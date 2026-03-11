@@ -237,6 +237,21 @@ func currentSubtree(agent string, spec agents.AgentSpec) (map[string]any, bool, 
 		}
 		return subtree, true, full, nil
 
+	case "openclaw_json":
+		full, err := tx.ReadJSON(spec.Path)
+		if err != nil {
+			return nil, false, nil, fmt.Errorf("read %s for %s: %w", spec.Path, agent, err)
+		}
+		mcpMap := tx.GetMap(full, "mcp")
+		if mcpMap == nil {
+			return map[string]any{}, true, full, nil
+		}
+		subtree := tx.GetMap(mcpMap, "servers")
+		if subtree == nil {
+			subtree = map[string]any{}
+		}
+		return subtree, true, full, nil
+
 	case "codex_toml":
 		full, err := tx.ReadTOML(spec.Path)
 		if err != nil {
@@ -283,6 +298,16 @@ func renderUpdated(agent string, spec agents.AgentSpec, full map[string]any, des
 		updated["mcp"] = desired
 		return updated
 
+	case "openclaw_json":
+		mcpMap := tx.GetMap(updated, "mcp")
+		if mcpMap == nil {
+			mcpMap = map[string]any{}
+		}
+		updatedMCP := shallowCopyMap(mcpMap)
+		updatedMCP["servers"] = desired
+		updated["mcp"] = updatedMCP
+		return updated
+
 	case "codex_toml":
 		updated["mcp_servers"] = desired
 		return updated
@@ -294,7 +319,7 @@ func renderUpdated(agent string, spec agents.AgentSpec, full map[string]any, des
 // writeTarget writes the rendered config to disk using the appropriate format.
 func writeTarget(path string, spec agents.AgentSpec, data map[string]any) error {
 	switch spec.FileType {
-	case "claude_json", "json", "opencode_json":
+	case "claude_json", "json", "opencode_json", "openclaw_json":
 		return tx.WriteJSONAtomic(path, data)
 	case "codex_toml":
 		return tx.WriteTOMLAtomic(path, data)

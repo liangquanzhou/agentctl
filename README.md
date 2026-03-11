@@ -61,19 +61,20 @@ agentctl status
 | **Gemini CLI** | JSON | `~/.gemini/settings.json` |
 | **Antigravity** | JSON | `~/.gemini/antigravity/mcp_config.json` |
 | **OpenCode** | JSON | `~/.config/opencode/opencode.json` |
+| **OpenClaw** | JSON | `~/.openclaw/openclaw.json` |
 
 Custom agents can be added via TOML overrides in `~/.config/agentctl/agents/`.
 
 ## Capability Matrix
 
-| Capability | Claude Code | Codex | Gemini CLI | Antigravity | OpenCode |
-|------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|
-| **MCP** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Rules** | ✅ | ✅ | ✅ | ✅ shared | ✅ |
-| **Hooks** | ✅ events | ✅ notify | ✅ events | ✅ shared | ❌ ¹ |
-| **Commands** | ✅ | ❌ ² | ✅ .toml | ❌ ² | ✅ |
-| **Ignore** | ✅ | ❌ ³ | ❌ ⁴ | ❌ ⁴ | ❌ ⁵ |
-| **Skills** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Capability | Claude Code | Codex | Gemini CLI | Antigravity | OpenCode | OpenClaw |
+|------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|:--------:|
+| **MCP** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Rules** | ✅ | ✅ | ✅ | ✅ shared | ✅ | ❌ ⁶ |
+| **Hooks** | ✅ events | ✅ notify | ✅ events | ✅ shared | ❌ ¹ | ❌ ⁶ |
+| **Commands** | ✅ | ❌ ² | ✅ .toml | ❌ ² | ✅ | ❌ ⁶ |
+| **Ignore** | ✅ | ❌ ³ | ❌ ⁴ | ❌ ⁴ | ❌ ⁵ | ❌ ⁶ |
+| **Skills** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 > **Notes:**
 > 1. OpenCode uses a JS/TS plugin system for hooks, not declarative JSON — not yet supported by agentctl
@@ -81,6 +82,7 @@ Custom agents can be added via TOML overrides in `~/.config/agentctl/agents/`.
 > 3. Codex `.codexignore` is experimental and [unreliable](https://github.com/openai/codex/issues/6530)
 > 4. Gemini CLI `.geminiignore` is project-level only; [global support is unconfirmed](https://github.com/google-gemini/gemini-cli/issues/4925)
 > 5. OpenCode reuses `.gitignore` and has no dedicated ignore file
+> 6. OpenClaw currently supports MCP and Skills only; rules, hooks, commands, and ignore are not yet investigated
 >
 > "shared" means Antigravity shares Gemini CLI's config files (`~/.gemini/GEMINI.md`, `~/.gemini/settings.json`), so it inherits rules and hooks automatically.
 

@@ -231,7 +231,9 @@ func newSkillsRemoveCmd() *cobra.Command {
 func runSyncAfterAdd(cmd *cobra.Command, stateDir string) map[string]any {
 	sourceDir := getSkillsSource(cmd)
 	targets := getSkillsTargets(cmd)
-	return skills.SkillsSync(sourceDir, targets, stateDir, false)
+	configDir := DefaultConfigDir()
+	skillsCfg := skills.LoadSkillsConfig(configDir)
+	return skills.SkillsSync(sourceDir, targets, stateDir, false, skillsCfg)
 }
 
 // skillMetasToMaps converts a slice of SkillMeta to a slice of maps for JSON output.

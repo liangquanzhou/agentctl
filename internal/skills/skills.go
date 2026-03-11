@@ -74,11 +74,16 @@ func SkillsList(sourceDir string) map[string]any {
 //	  "targets":       []map[string]any,
 //	  "unsynced_total": int,
 //	}
-func SkillsStatus(sourceDir string, targets map[string]string) map[string]any {
-	srcSkills := discoverSkills(sourceDir)
-	srcHashes := make(map[string]string, len(srcSkills))
-	for name, dir := range srcSkills {
-		srcHashes[name] = hashDir(dir)
+func SkillsStatus(sourceDir string, targets map[string]string, cfg ...*SkillsConfig) map[string]any {
+	allSrcSkills := discoverSkills(sourceDir)
+	allSrcHashes := make(map[string]string, len(allSrcSkills))
+	for name, dir := range allSrcSkills {
+		allSrcHashes[name] = hashDir(dir)
+	}
+
+	var skillsCfg *SkillsConfig
+	if len(cfg) > 0 {
+		skillsCfg = cfg[0]
 	}
 
 	unsyncedTotal := 0
@@ -87,6 +92,13 @@ func SkillsStatus(sourceDir string, targets map[string]string) map[string]any {
 	sortedTargets := sortedKeys(targets)
 	for _, tgtName := range sortedTargets {
 		tgtDir := targets[tgtName]
+
+		// Per-agent filtering
+		srcSkills := skillsCfg.FilteredSkills(tgtName, allSrcSkills)
+		srcHashes := make(map[string]string, len(srcSkills))
+		for name := range srcSkills {
+			srcHashes[name] = allSrcHashes[name]
+		}
 		tgtSkills := discoverSkills(tgtDir)
 		tgtHashes := make(map[string]string, len(tgtSkills))
 		for name, dir := range tgtSkills {
@@ -138,7 +150,7 @@ func SkillsStatus(sourceDir string, targets map[string]string) map[string]any {
 
 	return map[string]any{
 		"source_dir":     sourceDir,
-		"source_count":   len(srcSkills),
+		"source_count":   len(allSrcSkills),
 		"targets":        targetResults,
 		"unsynced_total": unsyncedTotal,
 	}
@@ -150,7 +162,7 @@ func SkillsStatus(sourceDir string, targets map[string]string) map[string]any {
 // removes stale managed skills, and updates the managed state file.
 // H4: Acquires exclusive lock on managed.json + target trees.
 // M4: Returns errors via the result map "errors" key and as a second return value.
-func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dryRun bool) map[string]any {
+func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dryRun bool, cfg ...*SkillsConfig) map[string]any {
 	// Note: $HOME validation is enforced at config load time in agents.go.
 	// Runtime checks here focus on symlink rejection before destructive ops.
 
@@ -180,13 +192,17 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 	}
 	defer tx.ReleaseLock(lock)
 
-	srcSkills := discoverSkills(sourceDir)
-	srcHashes := make(map[string]string, len(srcSkills))
-	for name, dir := range srcSkills {
-		srcHashes[name] = hashDir(dir)
+	allSrcSkills := discoverSkills(sourceDir)
+	allSrcHashes := make(map[string]string, len(allSrcSkills))
+	for name, dir := range allSrcSkills {
+		allSrcHashes[name] = hashDir(dir)
 	}
 
-	srcNames := sortedKeys(srcSkills)
+	var skillsCfg *SkillsConfig
+	if len(cfg) > 0 {
+		skillsCfg = cfg[0]
+	}
+
 	managed := loadManagedState(stateDir)
 	totalActions := 0
 
@@ -197,6 +213,14 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 	for _, tgtName := range sortedTargets {
 		tgtDir := targets[tgtName]
 		tgtSkills := discoverSkills(tgtDir)
+
+		// Per-agent filtering
+		srcSkills := skillsCfg.FilteredSkills(tgtName, allSrcSkills)
+		srcHashes := make(map[string]string, len(srcSkills))
+		for name := range srcSkills {
+			srcHashes[name] = allSrcHashes[name]
+		}
+		srcNames := sortedKeys(srcSkills)
 
 		var copied, updated, removed []string
 
@@ -299,7 +323,7 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 	result := map[string]any{
 		"dry_run":      dryRun,
 		"source_dir":   sourceDir,
-		"source_count": len(srcSkills),
+		"source_count": len(allSrcSkills),
 		"targets":      targetResults,
 		"actions":      totalActions,
 	}

@@ -16,7 +16,7 @@ type AgentDefinition struct {
 	Name           string
 	Aliases        []string
 	DisplayOrder   int
-	MCPFileType    string // claude_json | json | codex_toml | opencode_json
+	MCPFileType    string // claude_json | json | codex_toml | opencode_json | openclaw_json
 	MCPPath        string
 	MCPInjectKey   string
 	MCPManagedKeys []string
@@ -98,6 +98,18 @@ func builtinAgents() map[string]AgentDefinition {
 			HooksFormat:    "",
 			SkillsTarget:   filepath.Join(h, ".config", "opencode", "skills"),
 			BinaryNames:    []string{"opencode"},
+		},
+		"openclaw": {
+			Name:           "openclaw",
+			Aliases:        []string{},
+			DisplayOrder:   6,
+			MCPFileType:    "openclaw_json",
+			MCPPath:        filepath.Join(h, ".openclaw", "openclaw.json"),
+			MCPInjectKey:   "mcp.servers",
+			MCPManagedKeys: []string{"mcp.servers"},
+			HooksFormat:    "",
+			SkillsTarget:   filepath.Join(h, ".openclaw", "skills"),
+			BinaryNames:    []string{"openclaw"},
 		},
 	}
 }

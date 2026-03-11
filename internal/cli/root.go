@@ -133,7 +133,8 @@ func runApplyAll(cmd *cobra.Command, args []string) error {
 
 	// 3. Skills sync (H5: errors propagated, not silently ignored)
 	targets := getSkillsTargets(cmd)
-	skillsData := skills.SkillsSync(getSkillsSource(cmd), targets, stateDir, false)
+	skillsCfg := skills.LoadSkillsConfig(configDir)
+	skillsData := skills.SkillsSync(getSkillsSource(cmd), targets, stateDir, false, skillsCfg)
 	if skillsErrors, ok := skillsData["errors"]; ok {
 		if errList, ok := skillsErrors.([]string); ok && len(errList) > 0 {
 			fmt.Println(red("skills sync had errors") + ":")
@@ -205,7 +206,8 @@ func runStatusAll(cmd *cobra.Command, args []string) error {
 
 	// 3. Skills
 	targets := getSkillsTargets(cmd)
-	skillsData := skills.SkillsStatus(getSkillsSource(cmd), targets)
+	skillsCfg := skills.LoadSkillsConfig(configDir)
+	skillsData := skills.SkillsStatus(getSkillsSource(cmd), targets, skillsCfg)
 	skillsDrift := 0
 	if total, ok := skillsData["unsynced_total"].(int); ok {
 		skillsDrift = total
