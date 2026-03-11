@@ -2,15 +2,18 @@ package agents
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
 // ProbeStatus describes the detected state of an agent on the local machine.
 type ProbeStatus struct {
-	Name         string `json:"name"`
-	Installed    bool   `json:"installed"`     // config path parent dir exists
-	ConfigFound  bool   `json:"config_found"`  // MCP config file exists
-	ConfigWritable bool `json:"config_writable"` // MCP config file/dir is writable
+	Name           string `json:"name"`
+	Installed      bool   `json:"installed"`       // config path parent dir exists
+	ConfigFound    bool   `json:"config_found"`    // MCP config file exists
+	ConfigWritable bool   `json:"config_writable"` // MCP config file/dir is writable
+	BinaryFound    bool   `json:"binary_found"`    // binary found in PATH
+	BinaryPath     string `json:"binary_path,omitempty"` // resolved binary path
 }
 
 // ProbeAll checks every registered agent's local installation status.
@@ -51,7 +54,22 @@ func probeOne(defn AgentDefinition) ProbeStatus {
 		ps.ConfigWritable = isWritable(parentDir)
 	}
 
+	// Check if the binary is in PATH
+	probeBinary(defn.BinaryNames, &ps)
+
 	return ps
+}
+
+// probeBinary checks if any of the given binary names exist in PATH.
+func probeBinary(names []string, ps *ProbeStatus) {
+	for _, name := range names {
+		path, err := exec.LookPath(name)
+		if err == nil {
+			ps.BinaryFound = true
+			ps.BinaryPath = path
+			return
+		}
+	}
 }
 
 func isWritable(path string) bool {

@@ -28,6 +28,7 @@ func NewRootCmd(version string) *cobra.Command {
 	root.PersistentFlags().String("secrets-dir", DefaultSecretsDir(), "Secrets directory")
 	root.PersistentFlags().String("state-dir", DefaultStateDir(), "State directory")
 
+	root.AddCommand(newInitCmd())
 	root.AddCommand(newValidateCmd())
 	root.AddCommand(newApplyAllCmd())
 	root.AddCommand(newStatusAllCmd())

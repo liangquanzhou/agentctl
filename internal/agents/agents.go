@@ -22,6 +22,7 @@ type AgentDefinition struct {
 	MCPManagedKeys []string
 	HooksFormat    string // claude_hooks | gemini_hooks | codex_notify | "" (none)
 	SkillsTarget   string // empty string means no skills
+	BinaryNames    []string // executable names for which-style detection
 }
 
 // AgentSpec is an engine-compatible agent specification.
@@ -48,6 +49,7 @@ func builtinAgents() map[string]AgentDefinition {
 			MCPManagedKeys: []string{"mcpServers", "projects.*.mcpServers"},
 			HooksFormat:    "claude_hooks",
 			SkillsTarget:   filepath.Join(h, ".claude", "skills"),
+			BinaryNames:    []string{"claude"},
 		},
 		"codex": {
 			Name:           "codex",
@@ -59,6 +61,7 @@ func builtinAgents() map[string]AgentDefinition {
 			MCPManagedKeys: []string{"mcp_servers"},
 			HooksFormat:    "codex_notify",
 			SkillsTarget:   filepath.Join(h, ".codex", "skills"),
+			BinaryNames:    []string{"codex"},
 		},
 		"gemini-cli": {
 			Name:           "gemini-cli",
@@ -70,6 +73,7 @@ func builtinAgents() map[string]AgentDefinition {
 			MCPManagedKeys: []string{"mcpServers"},
 			HooksFormat:    "gemini_hooks",
 			SkillsTarget:   filepath.Join(h, ".gemini", "skills"),
+			BinaryNames:    []string{"gemini"},
 		},
 		"antigravity": {
 			Name:           "antigravity",
@@ -81,6 +85,7 @@ func builtinAgents() map[string]AgentDefinition {
 			MCPManagedKeys: []string{"mcpServers"},
 			HooksFormat:    "",
 			SkillsTarget:   filepath.Join(h, ".gemini", "antigravity", "skills"),
+			BinaryNames:    []string{"antigravity"},
 		},
 		"opencode": {
 			Name:           "opencode",
@@ -92,6 +97,7 @@ func builtinAgents() map[string]AgentDefinition {
 			MCPManagedKeys: []string{"mcp"},
 			HooksFormat:    "",
 			SkillsTarget:   filepath.Join(h, ".config", "opencode", "skills"),
+			BinaryNames:    []string{"opencode"},
 		},
 	}
 }

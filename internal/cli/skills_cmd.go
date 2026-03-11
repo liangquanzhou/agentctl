@@ -19,6 +19,9 @@ func newSkillsCmd() *cobra.Command {
 	cmd.AddCommand(newSkillsSyncCmd())
 	cmd.AddCommand(newSkillsApplyCmd())
 	cmd.AddCommand(newSkillsPullCmd())
+	cmd.AddCommand(newSkillsAddCmd())
+	cmd.AddCommand(newSkillsSearchCmd())
+	cmd.AddCommand(newSkillsRemoveCmd())
 	return cmd
 }
 

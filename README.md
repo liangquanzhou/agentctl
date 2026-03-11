@@ -39,13 +39,14 @@ agentctl status
 
 | Command | Description |
 |---------|-------------|
+| `init` | Interactive setup — detect agents, generate config |
 | `apply` | Apply all subsystems at once |
 | `status` | Show status of all subsystems |
 | `validate` | Validate configuration files |
 | `doctor` | Health check (secrets, dependencies) |
 | `rollback` | Rollback last apply |
 | `mcp list\|add\|rm\|plan\|apply\|status` | MCP server management |
-| `skills sync\|list\|status\|pull` | Skills synchronization |
+| `skills add\|search\|remove\|sync\|list\|status\|pull` | Skills management (GitHub download + sync) |
 | `rules\|hooks\|commands\|ignore` | Content management per type |
 | `drift` | Check MCP configuration drift |
 | `reconcile` | Fix MCP drift |
@@ -109,7 +110,8 @@ agentctl reads a centralized configuration and distributes it to each AI agent's
 
 ## Roadmap
 
-- [ ] `agentctl init` — interactive setup that detects installed agents and generates initial config
+- [x] `agentctl init` — interactive setup that detects installed agents and generates initial config
+- [x] `agentctl skills add` — download skills from GitHub and distribute to all agents
 - [ ] OpenCode hooks adapter — generate JS/TS plugin files for OpenCode's plugin system
 - [ ] Gemini CLI global ignore — pending [upstream support](https://github.com/google-gemini/gemini-cli/issues/4925)
 
