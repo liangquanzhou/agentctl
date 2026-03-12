@@ -61,20 +61,22 @@ agentctl status
 | **Gemini CLI** | JSON | `~/.gemini/settings.json` |
 | **Antigravity** | JSON | `~/.gemini/antigravity/mcp_config.json` |
 | **OpenCode** | JSON | `~/.config/opencode/opencode.json` |
-| **OpenClaw** | JSON | `~/.openclaw/openclaw.json` |
+| **OpenClaw** | JSON (嵌套) | `~/.openclaw/openclaw.json` |
+| **Trae CN** | JSON | `~/Library/Application Support/Trae CN/User/mcp.json` |
 
 可通过 `~/.config/agentctl/agents/` 下的 TOML 文件添加自定义 Agent。
 
 ## 能力矩阵
 
-| 能力 | Claude Code | Codex | Gemini CLI | Antigravity | OpenCode | OpenClaw |
-|------|:-----------:|:-----:|:----------:|:-----------:|:--------:|:--------:|
-| **MCP** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Rules** | ✅ | ✅ | ✅ | ✅ 共享 | ✅ | ❌ ⁶ |
-| **Hooks** | ✅ events | ✅ notify | ✅ events | ✅ 共享 | ❌ ¹ | ❌ ⁶ |
-| **Commands** | ✅ | ❌ ² | ✅ .toml | ❌ ² | ✅ | ❌ ⁶ |
-| **Ignore** | ✅ | ❌ ³ | ❌ ⁴ | ❌ ⁴ | ❌ ⁵ | ❌ ⁶ |
-| **Skills** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Agent | MCP | Rules | Hooks | Commands | Ignore | Skills |
+|-------|:---:|:-----:|:-----:|:--------:|:------:|:------:|
+| **Claude Code** | ✅ | ✅ | ✅ events | ✅ | ✅ | ✅ |
+| **Codex** | ✅ | ✅ | ✅ notify | ❌ ² | ❌ ³ | ✅ |
+| **Gemini CLI** | ✅ | ✅ | ✅ events | ✅ .toml | ❌ ⁴ | ✅ |
+| **Antigravity** | ✅ | ✅ 共享 | ✅ 共享 | ❌ ² | ❌ ⁴ | ✅ |
+| **OpenCode** | ✅ | ✅ | ❌ ¹ | ✅ | ❌ ⁵ | ✅ |
+| **OpenClaw** | ✅ | ❌ ⁶ | ❌ ⁶ | ❌ ⁶ | ❌ ⁶ | ✅ |
+| **Trae CN** | ✅ | ❌ ⁷ | ❌ ⁷ | ❌ ⁷ | ❌ ⁷ | ✅ |
 
 > **注释：**
 > 1. OpenCode 通过 JS/TS plugin 系统实现 hooks，非声明式 JSON，agentctl 暂不适配
@@ -83,6 +85,7 @@ agentctl status
 > 4. Gemini CLI 的 `.geminiignore` 仅支持项目级，[全局支持尚未确认](https://github.com/google-gemini/gemini-cli/issues/4925)
 > 5. OpenCode 复用 `.gitignore`，无独立 ignore 文件
 > 6. OpenClaw 目前仅支持 MCP 和 Skills；rules、hooks、commands、ignore 尚未调研
+> 7. Trae CN 目前仅支持 MCP 和 Skills；rules、hooks、commands、ignore 尚未调研
 >
 > "共享"指 Antigravity 与 Gemini CLI 共用配置文件（`~/.gemini/GEMINI.md`、`~/.gemini/settings.json`），自动继承 rules 和 hooks。
 

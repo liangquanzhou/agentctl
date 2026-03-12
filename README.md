@@ -61,20 +61,22 @@ agentctl status
 | **Gemini CLI** | JSON | `~/.gemini/settings.json` |
 | **Antigravity** | JSON | `~/.gemini/antigravity/mcp_config.json` |
 | **OpenCode** | JSON | `~/.config/opencode/opencode.json` |
-| **OpenClaw** | JSON | `~/.openclaw/openclaw.json` |
+| **OpenClaw** | JSON (nested) | `~/.openclaw/openclaw.json` |
+| **Trae CN** | JSON | `~/Library/Application Support/Trae CN/User/mcp.json` |
 
 Custom agents can be added via TOML overrides in `~/.config/agentctl/agents/`.
 
 ## Capability Matrix
 
-| Capability | Claude Code | Codex | Gemini CLI | Antigravity | OpenCode | OpenClaw |
-|------------|:-----------:|:-----:|:----------:|:-----------:|:--------:|:--------:|
-| **MCP** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Rules** | ✅ | ✅ | ✅ | ✅ shared | ✅ | ❌ ⁶ |
-| **Hooks** | ✅ events | ✅ notify | ✅ events | ✅ shared | ❌ ¹ | ❌ ⁶ |
-| **Commands** | ✅ | ❌ ² | ✅ .toml | ❌ ² | ✅ | ❌ ⁶ |
-| **Ignore** | ✅ | ❌ ³ | ❌ ⁴ | ❌ ⁴ | ❌ ⁵ | ❌ ⁶ |
-| **Skills** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Agent | MCP | Rules | Hooks | Commands | Ignore | Skills |
+|-------|:---:|:-----:|:-----:|:--------:|:------:|:------:|
+| **Claude Code** | ✅ | ✅ | ✅ events | ✅ | ✅ | ✅ |
+| **Codex** | ✅ | ✅ | ✅ notify | ❌ ² | ❌ ³ | ✅ |
+| **Gemini CLI** | ✅ | ✅ | ✅ events | ✅ .toml | ❌ ⁴ | ✅ |
+| **Antigravity** | ✅ | ✅ shared | ✅ shared | ❌ ² | ❌ ⁴ | ✅ |
+| **OpenCode** | ✅ | ✅ | ❌ ¹ | ✅ | ❌ ⁵ | ✅ |
+| **OpenClaw** | ✅ | ❌ ⁶ | ❌ ⁶ | ❌ ⁶ | ❌ ⁶ | ✅ |
+| **Trae CN** | ✅ | ❌ ⁷ | ❌ ⁷ | ❌ ⁷ | ❌ ⁷ | ✅ |
 
 > **Notes:**
 > 1. OpenCode uses a JS/TS plugin system for hooks, not declarative JSON — not yet supported by agentctl
@@ -83,6 +85,7 @@ Custom agents can be added via TOML overrides in `~/.config/agentctl/agents/`.
 > 4. Gemini CLI `.geminiignore` is project-level only; [global support is unconfirmed](https://github.com/google-gemini/gemini-cli/issues/4925)
 > 5. OpenCode reuses `.gitignore` and has no dedicated ignore file
 > 6. OpenClaw currently supports MCP and Skills only; rules, hooks, commands, and ignore are not yet investigated
+> 7. Trae CN currently supports MCP and Skills only; rules, hooks, commands, and ignore support is not yet investigated
 >
 > "shared" means Antigravity shares Gemini CLI's config files (`~/.gemini/GEMINI.md`, `~/.gemini/settings.json`), so it inherits rules and hooks automatically.
 
