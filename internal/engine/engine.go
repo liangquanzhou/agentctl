@@ -114,6 +114,74 @@ func stringSliceContains(slice []string, s string) bool {
 	return false
 }
 
+func agentServerOverrides(agent string, registry map[string]map[string]any) map[string]any {
+	profilesAgents := tx.GetMap(registry["profiles.json"], "agents")
+	agentProfile := tx.GetMap(profilesAgents, agent)
+	return tx.GetMap(agentProfile, "overrides")
+}
+
+func cloneValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = cloneValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = cloneValue(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func cloneMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		out[key] = cloneValue(value)
+	}
+	return out
+}
+
+func mergeMap(dst, src map[string]any) {
+	if dst == nil || src == nil {
+		return
+	}
+	for key, value := range src {
+		srcMap, srcIsMap := value.(map[string]any)
+		dstMap, dstIsMap := dst[key].(map[string]any)
+		if srcIsMap && dstIsMap {
+			mergeMap(dstMap, srcMap)
+			dst[key] = dstMap
+			continue
+		}
+		dst[key] = cloneValue(value)
+	}
+}
+
+func resolvedServerSpec(agent, serverName string, registry map[string]map[string]any) map[string]any {
+	serversFile := tx.GetMap(registry["servers.json"], "servers")
+	base := tx.GetMap(serversFile, serverName)
+	if base == nil {
+		return nil
+	}
+
+	spec := cloneMap(base)
+	overrideMap := agentServerOverrides(agent, registry)
+	override := tx.GetMap(overrideMap, serverName)
+	if override != nil {
+		mergeMap(spec, override)
+	}
+	return spec
+}
+
 // serverEnv resolves environment variables for a server spec.
 func serverEnv(serverSpec map[string]any, envValues map[string]string) map[string]string {
 	out := make(map[string]string)
@@ -142,11 +210,10 @@ func serverEnv(serverSpec map[string]any, envValues map[string]string) map[strin
 // buildDesiredMCPServers builds the desired MCP config for standard agents
 // (claude_json, json, codex_toml).
 func buildDesiredMCPServers(agent string, registry map[string]map[string]any, envValues map[string]string) map[string]any {
-	serversFile := tx.GetMap(registry["servers.json"], "servers")
 	desired := make(map[string]any)
 
 	for _, serverName := range agentServerList(agent, registry) {
-		spec := tx.GetMap(serversFile, serverName)
+		spec := resolvedServerSpec(agent, serverName, registry)
 		if spec == nil {
 			continue
 		}
@@ -163,11 +230,10 @@ func buildDesiredMCPServers(agent string, registry map[string]map[string]any, en
 
 // buildDesiredOpencode builds the desired MCP config for the opencode agent.
 func buildDesiredOpencode(agent string, registry map[string]map[string]any, envValues map[string]string) map[string]any {
-	serversFile := tx.GetMap(registry["servers.json"], "servers")
 	desired := make(map[string]any)
 
 	for _, serverName := range agentServerList(agent, registry) {
-		spec := tx.GetMap(serversFile, serverName)
+		spec := resolvedServerSpec(agent, serverName, registry)
 		if spec == nil {
 			continue
 		}
