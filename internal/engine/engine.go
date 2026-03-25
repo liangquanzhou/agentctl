@@ -608,7 +608,7 @@ func Apply(configDir, secretsDir, stateDir string, breakGlass bool, reason, acto
 	}
 
 	lockPath := filepath.Join(stateDir, "locks", "apply.lock")
-	lock, err := tx.AcquireLock(lockPath, 30)
+	lock, err := tx.AcquireLock(lockPath, tx.DefaultLockTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("acquire lock: %w", err)
 	}
@@ -672,7 +672,11 @@ func Apply(configDir, secretsDir, stateDir string, breakGlass bool, reason, acto
 			preExists, snapshot := snapshotOne(item.Path, snapshotDir, item.Agent)
 			var preHash string
 			if preExists {
-				preHash, _ = tx.SHA256File(item.Path)
+				var hashErr error
+				preHash, hashErr = tx.SHA256File(item.Path)
+				if hashErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: pre-hash %s: %v\n", item.Path, hashErr)
+				}
 			}
 
 			updated := renderUpdated(item.Agent, spec, fullCurrent, item.Desired)
@@ -681,7 +685,10 @@ func Apply(configDir, secretsDir, stateDir string, breakGlass bool, reason, acto
 				return
 			}
 
-			postHash, _ := tx.SHA256File(item.Path)
+			postHash, hashErr := tx.SHA256File(item.Path)
+			if hashErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: post-hash %s: %v\n", item.Path, hashErr)
+			}
 
 			change := ChangedFile{
 				Agent:     item.Agent,
@@ -734,7 +741,9 @@ func Apply(configDir, secretsDir, stateDir string, breakGlass bool, reason, acto
 
 		// Write manifest even on failure
 		manifestPath := filepath.Join(stateDir, "runs", runID+".json")
-		_ = tx.WriteJSONAtomic(manifestPath, result.ToMap())
+		if wErr := tx.WriteJSONAtomic(manifestPath, result.ToMap()); wErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write failure manifest: %v\n", wErr)
+		}
 
 		return result, applyErr
 	}
