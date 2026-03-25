@@ -150,7 +150,11 @@ func runApplyAll(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s actions=%v\n", green("skills sync"), skillsData["actions"])
 
 	if len(errs) > 0 {
-		fmt.Printf("%s apply finished with %d error(s)\n", red("FAIL"), len(errs))
+		fmt.Printf("\n%s apply finished with %d error(s):\n", red("FAIL"), len(errs))
+		for _, e := range errs {
+			fmt.Println("  - " + e)
+		}
+		fmt.Println("\nRun `agentctl status` to inspect current state, or `agentctl rollback --run <id>` to revert.")
 		os.Exit(1)
 	}
 	fmt.Println(green("All applied"))

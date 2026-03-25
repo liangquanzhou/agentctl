@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"agentctl/internal/agents"
 	"agentctl/internal/tx"
 )
 
@@ -82,15 +83,43 @@ func ValidateConfig(configDir string) (bool, []string) {
 	}
 
 	// ── Cross-file checks (content) ─────────────────────────────────
+
+	// Build set of known agent names (canonical + aliases) for validation.
+	agentsDir := filepath.Join(configDir, "agents")
+	registry := agents.LoadAgentRegistry(agentsDir)
+	aliasMap := agents.BuildAliasMap(registry)
+	knownAgents := make(map[string]bool)
+	for name := range registry {
+		knownAgents[name] = true
+	}
+	for alias := range aliasMap {
+		knownAgents[alias] = true
+	}
+
 	home := tx.HomeDir()
 	seenTargets := make(map[string]bool)
+	rulesDir := filepath.Join(configDir, "rules")
 
 	if rulesCfg, ok := loaded["rules/config.json"]; ok {
-		agents := tx.GetMap(rulesCfg, "agents")
-		for agent, val := range agents {
+		agentsMap := tx.GetMap(rulesCfg, "agents")
+		for agent, val := range agentsMap {
+			if !knownAgents[agent] {
+				errors = append(errors, fmt.Sprintf("rules/config.json: unknown agent '%s'", agent))
+			}
 			ruleCfg, ok := val.(map[string]any)
 			if !ok {
 				continue
+			}
+			// Check compose source files exist
+			if compose, ok := ruleCfg["compose"].([]any); ok {
+				for _, item := range compose {
+					if filename, ok := item.(string); ok {
+						srcPath := filepath.Join(rulesDir, filename)
+						if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+							errors = append(errors, fmt.Sprintf("rules/config.json agent '%s': compose file not found: %s", agent, filename))
+						}
+					}
+				}
 			}
 			target := tx.GetString(ruleCfg, "target", "")
 			resolved := resolveForValidation(target)
@@ -105,8 +134,11 @@ func ValidateConfig(configDir string) (bool, []string) {
 	}
 
 	if hooksCfg, ok := loaded["hooks/config.json"]; ok {
-		agents := tx.GetMap(hooksCfg, "agents")
-		for agent, val := range agents {
+		hooksAgents := tx.GetMap(hooksCfg, "agents")
+		for agent, val := range hooksAgents {
+			if !knownAgents[agent] {
+				errors = append(errors, fmt.Sprintf("hooks/config.json: unknown agent '%s'", agent))
+			}
 			hookCfg, ok := val.(map[string]any)
 			if !ok {
 				continue
@@ -126,8 +158,11 @@ func ValidateConfig(configDir string) (bool, []string) {
 
 	// M1: validate commands targets are under $HOME
 	if commandsCfg, ok := loaded["commands/config.json"]; ok {
-		agents := tx.GetMap(commandsCfg, "agents")
-		for agent, val := range agents {
+		cmdsAgents := tx.GetMap(commandsCfg, "agents")
+		for agent, val := range cmdsAgents {
+			if !knownAgents[agent] {
+				errors = append(errors, fmt.Sprintf("commands/config.json: unknown agent '%s'", agent))
+			}
 			cmdCfg, ok := val.(map[string]any)
 			if !ok {
 				continue
@@ -146,8 +181,11 @@ func ValidateConfig(configDir string) (bool, []string) {
 
 	// M1: validate ignore targets are under $HOME
 	if ignoreCfg, ok := loaded["ignore.json"]; ok {
-		agents := tx.GetMap(ignoreCfg, "agents")
-		for agent, val := range agents {
+		ignAgents := tx.GetMap(ignoreCfg, "agents")
+		for agent, val := range ignAgents {
+			if !knownAgents[agent] {
+				errors = append(errors, fmt.Sprintf("ignore.json: unknown agent '%s'", agent))
+			}
 			ignCfg, ok := val.(map[string]any)
 			if !ok {
 				continue

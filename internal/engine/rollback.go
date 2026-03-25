@@ -115,7 +115,9 @@ func Rollback(stateDir, runID, agent, actor string) (*RollbackResult, error) {
 
 	defer func() {
 		manifestPath := filepath.Join(stateDir, "runs", rollbackID+".json")
-		_ = tx.WriteJSONAtomic(manifestPath, result.ToMap())
+		if wErr := tx.WriteJSONAtomic(manifestPath, result.ToMap()); wErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write rollback manifest: %v\n", wErr)
+		}
 	}()
 
 	// Validate snapshot paths are under the expected snapshots directory.

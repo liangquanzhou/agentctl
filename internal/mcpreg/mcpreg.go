@@ -22,8 +22,8 @@ import (
 	"agentctl/internal/validate"
 )
 
-// defaultLockTimeout is the default timeout in seconds for acquiring locks.
-const defaultLockTimeout = 30
+// defaultLockTimeout is kept as a local alias for backward compatibility.
+const defaultLockTimeout = tx.DefaultLockTimeout
 
 // registryFiles enumerates the three MCP registry files that form the triplet.
 var registryFiles = [3]string{"servers.json", "profiles.json", "compat.json"}
@@ -140,7 +140,7 @@ func MCPAdd(configDir, name string, opts AddOpts) (map[string]any, error) {
 		return nil, fmt.Errorf("create lock dir: %w", err)
 	}
 	lockPath := filepath.Join(lockDir, "mcp_registry.lock")
-	lock, err := tx.AcquireLock(lockPath, 30)
+	lock, err := tx.AcquireLock(lockPath, tx.DefaultLockTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("acquire lock: %w", err)
 	}

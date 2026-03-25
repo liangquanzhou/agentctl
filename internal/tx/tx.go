@@ -20,6 +20,10 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
+// DefaultLockTimeout is the default timeout in seconds for acquiring locks.
+// Exported so all packages use the same constant; CLI can override via flags.
+const DefaultLockTimeout = 30
+
 // ── Timestamp ────────────────────────────────────────────────────────
 
 // UTCNowISO returns the current UTC time in ISO8601 format with "Z" suffix.

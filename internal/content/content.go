@@ -389,7 +389,7 @@ func ContentApply(configDir, stateDir string, opts ApplyOpts) (map[string]any, e
 
 	// Acquire lock
 	lockPath := filepath.Join(stateDir, "locks", "apply.lock")
-	lockFD, err := tx.AcquireLock(lockPath, 30)
+	lockFD, err := tx.AcquireLock(lockPath, tx.DefaultLockTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("acquire lock: %w", err)
 	}
@@ -431,7 +431,9 @@ func ContentApply(configDir, stateDir string, opts ApplyOpts) (map[string]any, e
 			duration := time.Now().UTC().Sub(start)
 			manifest["duration_ms"] = int(duration.Milliseconds())
 			runsPath := filepath.Join(stateDir, "runs", runID+".json")
-			_ = tx.WriteJSONAtomic(runsPath, manifest)
+			if wErr := tx.WriteJSONAtomic(runsPath, manifest); wErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to write content manifest: %v\n", wErr)
+			}
 			tx.ReleaseLock(lockFD)
 		}()
 
@@ -527,7 +529,11 @@ func ContentApply(configDir, stateDir string, opts ApplyOpts) (map[string]any, e
 
 			var preHash string
 			if preExists {
-				preHash, _ = tx.SHA256File(path)
+				var hashErr error
+				preHash, hashErr = tx.SHA256File(path)
+				if hashErr != nil {
+					fmt.Fprintf(os.Stderr, "warning: pre-hash %s: %v\n", path, hashErr)
+				}
 			}
 
 			// Apply the change
@@ -559,7 +565,10 @@ func ContentApply(configDir, stateDir string, opts ApplyOpts) (map[string]any, e
 				return
 			}
 
-			postHash, _ := tx.SHA256File(path)
+			postHash, hashErr := tx.SHA256File(path)
+			if hashErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: post-hash %s: %v\n", path, hashErr)
+			}
 
 			change := changeMeta{
 				Agent:     itemAgent,
