@@ -33,11 +33,14 @@ var hooksAdapters = map[string]hookAdapter{
 
 // buildHooksClaude builds the Claude Code / Gemini hooks structure from config.
 // Returns a map[string]any suitable for JSON injection.
+// For gemini_hooks format, also passes through "matcher" field.
 func buildHooksClaude(agent string, hookCfg map[string]any) map[string]any {
 	events := tx.GetMap(hookCfg, "events")
 	if events == nil {
 		return map[string]any{}
 	}
+
+	format := tx.GetString(hookCfg, "format", "")
 
 	result := make(map[string]any)
 	for eventName, entriesRaw := range events {
@@ -58,9 +61,15 @@ func buildHooksClaude(agent string, hookCfg map[string]any) map[string]any {
 			if timeout, ok := entry["timeout"]; ok {
 				hook["timeout"] = timeout
 			}
-			hooksList = append(hooksList, map[string]any{
+			wrapper := map[string]any{
 				"hooks": []any{hook},
-			})
+			}
+			// Gemini CLI requires "matcher" on each hook group
+			if format == "gemini_hooks" {
+				matcher := tx.GetString(entry, "matcher", "*")
+				wrapper["matcher"] = matcher
+			}
+			hooksList = append(hooksList, wrapper)
 		}
 		result[eventName] = hooksList
 	}
