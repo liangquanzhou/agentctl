@@ -246,7 +246,7 @@ func newHooksAddCmd() *cobra.Command {
 	cmd.Flags().StringP("agent", "a", "", "Agent name")
 	cmd.MarkFlagRequired("agent")
 	cmd.Flags().StringP("event", "e", "", "Event name (claude/gemini)")
-	cmd.Flags().StringP("command", "c", "", "Hook command (claude/gemini)")
+	cmd.Flags().StringP("command", "c", "", "Hook command (claude/gemini/codex_hooks)")
 	cmd.Flags().Int("timeout", 0, "Hook timeout in seconds")
 	cmd.Flags().String("notify", "", "Notify value (codex)")
 	cmd.Flags().String("target", "", "Target path (required for new agent)")

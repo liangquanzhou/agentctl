@@ -27,6 +27,7 @@ type hookAdapter struct {
 // hooksAdapters maps format name to adapter metadata.
 var hooksAdapters = map[string]hookAdapter{
 	"claude_hooks": {InjectKey: "hooks", FileType: "json"},
+	"codex_hooks":  {InjectKey: "hooks", FileType: "json"},
 	"gemini_hooks": {InjectKey: "hooks", FileType: "json"},
 	"codex_notify": {InjectKey: "notify", FileType: "toml"},
 }
@@ -60,6 +61,9 @@ func buildHooksClaude(agent string, hookCfg map[string]any) map[string]any {
 			}
 			if timeout, ok := entry["timeout"]; ok {
 				hook["timeout"] = timeout
+			}
+			if statusMessage := tx.GetString(entry, "statusMessage", ""); statusMessage != "" {
+				hook["statusMessage"] = statusMessage
 			}
 			wrapper := map[string]any{
 				"hooks": []any{hook},

@@ -297,6 +297,27 @@ func TestBuildHooksClaude_TemplateSubstitution(t *testing.T) {
 	}
 }
 
+func TestBuildHooksClaude_StatusMessage(t *testing.T) {
+	hookCfg := map[string]any{
+		"events": map[string]any{
+			"Stop": []any{
+				map[string]any{
+					"command":       "kg-memory-mcp hooks run {{agent}}",
+					"statusMessage": "Archiving Codex conversation",
+				},
+			},
+		},
+	}
+	result := buildHooksClaude("codex", hookCfg)
+	hooksList := result["Stop"].([]any)
+	first := hooksList[0].(map[string]any)
+	hooks := first["hooks"].([]any)
+	hook := hooks[0].(map[string]any)
+	if hook["statusMessage"] != "Archiving Codex conversation" {
+		t.Errorf("statusMessage = %v, want 'Archiving Codex conversation'", hook["statusMessage"])
+	}
+}
+
 func TestBuildHooksClaude_EmptyEvents(t *testing.T) {
 	hookCfg := map[string]any{}
 	result := buildHooksClaude("claude-code", hookCfg)
@@ -1064,6 +1085,23 @@ func TestValidateHooksConfig_CodexRequiresNotify(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "requires 'notify' list") {
 		t.Errorf("error message mismatch: %v", err)
+	}
+}
+
+func TestValidateHooksConfig_CodexHooksAcceptsEvents(t *testing.T) {
+	cfg := map[string]any{
+		"agents": map[string]any{
+			"codex": map[string]any{
+				"target": "~/.codex/hooks.json",
+				"format": "codex_hooks",
+				"events": map[string]any{
+					"Stop": []any{map[string]any{"command": "kg-memory-mcp hooks run codex"}},
+				},
+			},
+		},
+	}
+	if err := validateHooksConfig(cfg); err != nil {
+		t.Fatalf("codex_hooks with events should pass: %v", err)
 	}
 }
 

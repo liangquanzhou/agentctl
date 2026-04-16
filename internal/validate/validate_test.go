@@ -98,7 +98,7 @@ func TestValidateLegacyFalseRequiresEmptyMaps(t *testing.T) {
 		"schema_version": "1.0.0",
 		"generated_at":   "2026-02-15T00:00:00Z",
 		"managed_by":     "agentctl",
-		"legacy_enabled":  false,
+		"legacy_enabled": false,
 		"profilesPerAgent_map": map[string]any{
 			"claude-code": "default",
 		},
@@ -145,12 +145,12 @@ func TestValidateLegacyFalseEmptyMapsOK(t *testing.T) {
 	})
 
 	writeJSON(t, filepath.Join(mcpDir, "compat.json"), map[string]any{
-		"schema_version":        "1.0.0",
-		"generated_at":          "2026-02-15T00:00:00Z",
-		"managed_by":            "agentctl",
-		"legacy_enabled":        false,
-		"profilesPerAgent_map":  map[string]any{},
-		"disabled_map":          map[string]any{},
+		"schema_version":       "1.0.0",
+		"generated_at":         "2026-02-15T00:00:00Z",
+		"managed_by":           "agentctl",
+		"legacy_enabled":       false,
+		"profilesPerAgent_map": map[string]any{},
+		"disabled_map":         map[string]any{},
 	})
 
 	ok, errs := ValidateConfig(tmp)
@@ -225,12 +225,12 @@ func TestValidateMissingSchemaVersion(t *testing.T) {
 	})
 
 	writeJSON(t, filepath.Join(mcpDir, "compat.json"), map[string]any{
-		"schema_version":        "1.0.0",
-		"generated_at":          "2026-02-15T00:00:00Z",
-		"managed_by":            "agentctl",
-		"legacy_enabled":        true,
-		"profilesPerAgent_map":  map[string]any{},
-		"disabled_map":          map[string]any{},
+		"schema_version":       "1.0.0",
+		"generated_at":         "2026-02-15T00:00:00Z",
+		"managed_by":           "agentctl",
+		"legacy_enabled":       true,
+		"profilesPerAgent_map": map[string]any{},
+		"disabled_map":         map[string]any{},
 	})
 
 	ok, errs := ValidateConfig(tmp)
@@ -278,12 +278,12 @@ func TestValidateUnknownServerReference(t *testing.T) {
 	})
 
 	writeJSON(t, filepath.Join(mcpDir, "compat.json"), map[string]any{
-		"schema_version":        "1.0.0",
-		"generated_at":          "2026-02-15T00:00:00Z",
-		"managed_by":            "agentctl",
-		"legacy_enabled":        true,
-		"profilesPerAgent_map":  map[string]any{},
-		"disabled_map":          map[string]any{},
+		"schema_version":       "1.0.0",
+		"generated_at":         "2026-02-15T00:00:00Z",
+		"managed_by":           "agentctl",
+		"legacy_enabled":       true,
+		"profilesPerAgent_map": map[string]any{},
+		"disabled_map":         map[string]any{},
 	})
 
 	ok, errs := ValidateConfig(tmp)
@@ -402,6 +402,20 @@ func TestValidateHooksSchema_ValidClaudeHooks(t *testing.T) {
 	})
 	if len(errs) != 0 {
 		t.Errorf("valid claude_hooks config should pass, got: %v", errs)
+	}
+}
+
+func TestValidateHooksSchema_ValidCodexHooks(t *testing.T) {
+	errs := validateHooksSchema(map[string]any{
+		"agents": map[string]any{
+			"codex": map[string]any{
+				"target": "~/.codex/hooks.json",
+				"format": "codex_hooks",
+			},
+		},
+	})
+	if len(errs) != 0 {
+		t.Errorf("valid codex_hooks config should pass, got: %v", errs)
 	}
 }
 

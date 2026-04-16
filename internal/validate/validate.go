@@ -208,6 +208,7 @@ func ValidateConfig(configDir string) (bool, []string) {
 // validHooksFormats lists the accepted hooks format values.
 var validHooksFormats = map[string]bool{
 	"claude_hooks": true,
+	"codex_hooks":  true,
 	"gemini_hooks": true,
 	"codex_notify": true,
 }
@@ -288,7 +289,7 @@ func validateHooksSchema(data map[string]any) []string {
 		} else if formatStr, ok := formatRaw.(string); !ok {
 			errs = append(errs, fmt.Sprintf("agent '%s': format must be a string", name))
 		} else if !validHooksFormats[formatStr] {
-			errs = append(errs, fmt.Sprintf("agent '%s': format must be one of claude_hooks, gemini_hooks, codex_notify", name))
+			errs = append(errs, fmt.Sprintf("agent '%s': format must be one of claude_hooks, codex_hooks, gemini_hooks, codex_notify", name))
 		}
 	}
 	return errs

@@ -20,8 +20,8 @@ type AgentDefinition struct {
 	MCPPath        string
 	MCPInjectKey   string
 	MCPManagedKeys []string
-	HooksFormat    string // claude_hooks | gemini_hooks | codex_notify | "" (none)
-	SkillsTarget   string // empty string means no skills
+	HooksFormat    string   // claude_hooks | codex_hooks | gemini_hooks | codex_notify | "" (none)
+	SkillsTarget   string   // empty string means no skills
 	BinaryNames    []string // executable names for which-style detection
 }
 
@@ -59,7 +59,7 @@ func builtinAgents() map[string]AgentDefinition {
 			MCPPath:        filepath.Join(h, ".codex", "config.toml"),
 			MCPInjectKey:   "mcp_servers",
 			MCPManagedKeys: []string{"mcp_servers"},
-			HooksFormat:    "codex_notify",
+			HooksFormat:    "codex_hooks",
 			SkillsTarget:   filepath.Join(h, ".codex", "skills"),
 			BinaryNames:    []string{"codex"},
 		},
