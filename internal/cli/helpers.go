@@ -97,16 +97,44 @@ func ShortenPath(path string) string {
 
 // ── Skills flag helpers ──────────────────────────────────────────────
 
+// skillsTargetKeys returns the stable set of keys for skills dispatch:
+// one key per agent that has a non-empty SkillsTarget. The key is the first
+// alias if present, otherwise the canonical name. Deduplicated by path so
+// canonical names with matching aliases don't double-sync.
+func skillsTargetKeys() []string {
+	registry := agents.LoadAgentRegistry("")
+	seen := make(map[string]bool)
+	var keys []string
+	// Preserve display_order for stable flag/output ordering.
+	for _, name := range agents.BuildDisplayOrder(registry) {
+		defn := registry[name]
+		if defn.SkillsTarget == "" {
+			continue
+		}
+		key := defn.Name
+		if len(defn.Aliases) > 0 {
+			key = defn.Aliases[0]
+		}
+		if seen[defn.SkillsTarget] {
+			continue
+		}
+		seen[defn.SkillsTarget] = true
+		keys = append(keys, key)
+	}
+	return keys
+}
+
 func addSkillsFlags(cmd *cobra.Command) {
 	cmd.Flags().String("source-dir", DefaultSkillsSource(), "Skills source dir")
 	defaults := DefaultSkillsTargets()
-	cmd.Flags().String("claude-dir", defaults["claude"], "Claude skills dir")
-	cmd.Flags().String("codex-dir", defaults["codex"], "Codex skills dir")
-	cmd.Flags().String("gemini-dir", defaults["gemini"], "Gemini skills dir")
-	cmd.Flags().String("antigravity-dir", defaults["antigravity"], "Antigravity skills dir")
-	cmd.Flags().String("opencode-dir", defaults["opencode"], "OpenCode skills dir")
-	cmd.Flags().String("openclaw-dir", defaults["openclaw"], "OpenClaw skills dir")
-	cmd.Flags().String("trae-cn-dir", defaults["trae-cn"], "Trae CN skills dir")
+	for _, key := range skillsTargetKeys() {
+		flagName := key + "-dir"
+		// Guard against duplicate flag registration (e.g. when keys collide).
+		if cmd.Flags().Lookup(flagName) != nil {
+			continue
+		}
+		cmd.Flags().String(flagName, defaults[key], key+" skills dir")
+	}
 }
 
 func getSkillsSource(cmd *cobra.Command) string {
@@ -116,10 +144,10 @@ func getSkillsSource(cmd *cobra.Command) string {
 
 func getSkillsTargets(cmd *cobra.Command) map[string]string {
 	targets := make(map[string]string)
-	for _, name := range []string{"claude", "codex", "gemini", "antigravity", "opencode", "openclaw", "trae-cn"} {
-		val, _ := cmd.Flags().GetString(name + "-dir")
+	for _, key := range skillsTargetKeys() {
+		val, _ := cmd.Flags().GetString(key + "-dir")
 		if val != "" {
-			targets[name] = val
+			targets[key] = val
 		}
 	}
 	return targets
