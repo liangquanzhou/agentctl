@@ -57,6 +57,8 @@ agentctl status
 | Agent | 配置格式 | MCP 配置路径 |
 |-------|---------|-------------|
 | **Claude Code** | JSON | `~/.claude.json` |
+| **Claude Desktop** | JSON | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| **Claude Cowork 3P** | JSON | `~/Library/Application Support/Claude-3p/claude_desktop_config.json` |
 | **Codex** | TOML | `~/.codex/config.toml` |
 | **Gemini CLI** | JSON | `~/.gemini/settings.json` |
 | **Antigravity** | JSON | `~/.gemini/antigravity/mcp_config.json` |
@@ -71,6 +73,8 @@ agentctl status
 | Agent | MCP | Rules | Hooks | Commands | Ignore | Skills |
 |-------|:---:|:-----:|:-----:|:--------:|:------:|:------:|
 | **Claude Code** | ✅ | ✅ | ✅ events | ✅ | ✅ | ✅ |
+| **Claude Desktop** | ✅ | ❌ ⁸ | ❌ ⁸ | ❌ ⁸ | ❌ ⁸ | ✅ ⁹ |
+| **Claude Cowork 3P** | ✅ | ❌ ⁸ | ❌ ⁸ | ❌ ⁸ | ❌ ⁸ | ✅ ⁹ |
 | **Codex** | ✅ | ✅ | ✅ notify | ❌ ² | ❌ ³ | ✅ |
 | **Gemini CLI** | ✅ | ✅ | ✅ events | ✅ .toml | ❌ ⁴ | ✅ |
 | **Antigravity** | ✅ | ✅ 共享 | ✅ 共享 | ❌ ² | ❌ ⁴ | ✅ |
@@ -86,6 +90,8 @@ agentctl status
 > 5. OpenCode 复用 `.gitignore`，无独立 ignore 文件
 > 6. OpenClaw 目前仅支持 MCP 和 Skills；rules、hooks、commands、ignore 尚未调研
 > 7. Trae CN 目前仅支持 MCP 和 Skills；rules、hooks、commands、ignore 尚未调研
+> 8. Desktop/Cowork 内容能力走 Claude plugin 系统，不是 agentctl 的 rules/hooks/commands/ignore 目标
+> 9. Cowork 3P skills 会写入 Claude Desktop 本地 skills-plugin 缓存，路径为 `~/Library/Application Support/Claude-3p/local-agent-mode-sessions/skills-plugin/<org>/<account>/skills`
 >
 > "共享"指 Antigravity 与 Gemini CLI 共用配置文件（`~/.gemini/GEMINI.md`、`~/.gemini/settings.json`），自动继承 rules 和 hooks。
 

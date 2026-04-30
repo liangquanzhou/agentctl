@@ -17,6 +17,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 
 	"agentctl/internal/agents"
 	"agentctl/internal/tx"
@@ -212,6 +214,23 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 	sortedTargets := sortedKeys(targets)
 	for _, tgtName := range sortedTargets {
 		tgtDir := targets[tgtName]
+		pluginPrepared := false
+		if isClaudeOrgPluginSkillsDir(tgtDir) {
+			prepared, err := prepareClaudeOrgPlugin(tgtDir, dryRun)
+			if err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: prepare Claude org plugin: %v", tgtName, err))
+				continue
+			}
+			pluginPrepared = prepared
+		}
+		if isClaudeDesktopSkillsPluginDir(tgtDir) {
+			prepared, err := prepareClaudeDesktopSkillsPlugin(tgtDir, dryRun)
+			if err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: prepare Claude desktop skills plugin: %v", tgtName, err))
+				continue
+			}
+			pluginPrepared = prepared
+		}
 		tgtSkills := discoverSkills(tgtDir)
 
 		// Per-agent filtering
@@ -223,6 +242,7 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 		srcNames := sortedKeys(srcSkills)
 
 		var copied, updated, removed []string
+		prevManaged := managed[tgtName]
 
 		// Copy or update source skills into target.
 		for _, name := range srcNames {
@@ -251,7 +271,6 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 		}
 
 		// Remove stale managed skills (previously synced but no longer in source).
-		prevManaged := managed[tgtName]
 		var stillManaged []string
 		for _, name := range prevManaged {
 			if _, inSource := srcSkills[name]; inSource {
@@ -285,6 +304,26 @@ func SkillsSync(sourceDir string, targets map[string]string, stateDir string, dr
 		managed[tgtName] = managedList
 
 		actions := len(copied) + len(updated) + len(removed)
+		pluginPermissionsChanged := false
+		if isClaudeOrgPluginSkillsDir(tgtDir) {
+			permissionsChanged, err := normalizeClaudeOrgPluginPermissions(tgtDir, dryRun)
+			if err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: normalize Claude org plugin permissions: %v", tgtName, err))
+			}
+			pluginPermissionsChanged = permissionsChanged
+		}
+		if isClaudeDesktopSkillsPluginDir(tgtDir) {
+			changed, err := updateClaudeDesktopSkillsManifest(tgtDir, srcSkills, prevManaged, dryRun)
+			if err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: update Claude desktop skills manifest: %v", tgtName, err))
+			}
+			pluginPermissionsChanged = pluginPermissionsChanged || changed
+		}
+		if isClaudeOrgPluginSkillsDir(tgtDir) && (actions > 0 || pluginPrepared || pluginPermissionsChanged) {
+			if err := bumpClaudeOrgPluginVersion(tgtDir, dryRun); err != nil {
+				syncErrors = append(syncErrors, fmt.Sprintf("%s: bump Claude org plugin version: %v", tgtName, err))
+			}
+		}
 		totalActions += actions
 
 		// Re-discover target skills after sync to compute unsynced count.
@@ -388,6 +427,284 @@ func SkillsPull(sourceDir, targetName, targetDir string, dryRun, overwrite bool)
 		"updated":    len(updated),
 		"skipped":    len(skipped),
 	}, nil
+}
+
+// ── Claude org plugin support ────────────────────────────────────────
+
+func isClaudeOrgPluginSkillsDir(path string) bool {
+	clean := filepath.Clean(path)
+	if filepath.Base(clean) != "skills" {
+		return false
+	}
+	parts := strings.Split(clean, string(filepath.Separator))
+	for i, part := range parts {
+		if part == "org-plugins" && i+2 < len(parts) && parts[len(parts)-1] == "skills" {
+			return true
+		}
+	}
+	return false
+}
+
+func claudeOrgPluginRoot(skillsDir string) string {
+	return filepath.Dir(filepath.Clean(skillsDir))
+}
+
+func prepareClaudeOrgPlugin(skillsDir string, dryRun bool) (bool, error) {
+	if dryRun {
+		return false, nil
+	}
+	root := claudeOrgPluginRoot(skillsDir)
+	pluginName := filepath.Base(root)
+
+	pluginJSON := filepath.Join(root, ".claude-plugin", "plugin.json")
+	versionJSON := filepath.Join(root, "version.json")
+	changed := false
+
+	if err := os.MkdirAll(filepath.Join(root, ".claude-plugin"), 0o755); err != nil {
+		return false, err
+	}
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		return false, err
+	}
+
+	manifest := map[string]any{
+		"name":        pluginName,
+		"version":     "1.0.0",
+		"description": "Agentctl-managed skills for Claude Cowork on 3P",
+	}
+	if normalizeFileJSON(pluginJSON) != normalizeJSON(manifest) {
+		if err := tx.WriteJSONAtomic(pluginJSON, manifest); err != nil {
+			return false, err
+		}
+		if err := os.Chmod(pluginJSON, 0o644); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+
+	if _, err := os.Stat(versionJSON); os.IsNotExist(err) {
+		if err := tx.WriteJSONAtomic(versionJSON, map[string]any{"version": tx.UTCNowISO()}); err != nil {
+			return false, err
+		}
+		if err := os.Chmod(versionJSON, 0o644); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+
+	return changed, nil
+}
+
+func bumpClaudeOrgPluginVersion(skillsDir string, dryRun bool) error {
+	if dryRun {
+		return nil
+	}
+	path := filepath.Join(claudeOrgPluginRoot(skillsDir), "version.json")
+	if err := tx.WriteJSONAtomic(path, map[string]any{
+		"version": tx.UTCNowISO(),
+	}); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o644)
+}
+
+func normalizeClaudeOrgPluginPermissions(skillsDir string, dryRun bool) (bool, error) {
+	if dryRun {
+		return false, nil
+	}
+	root := claudeOrgPluginRoot(skillsDir)
+	changed := false
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		info, infoErr := d.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		want := fs.FileMode(0o644)
+		if d.IsDir() {
+			want = 0o755
+		}
+		if info.Mode().Perm() == want {
+			return nil
+		}
+		if err := os.Chmod(path, want); err != nil {
+			return err
+		}
+		changed = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return changed, nil
+}
+
+// ── Claude Desktop/Cowork skills-plugin support ─────────────────────
+
+func isClaudeDesktopSkillsPluginDir(path string) bool {
+	clean := filepath.Clean(path)
+	if filepath.Base(clean) != "skills" {
+		return false
+	}
+	parts := strings.Split(clean, string(filepath.Separator))
+	for i, part := range parts {
+		if part == "local-agent-mode-sessions" && i+3 < len(parts) && parts[i+1] == "skills-plugin" && parts[len(parts)-1] == "skills" {
+			return true
+		}
+	}
+	return false
+}
+
+func claudeDesktopSkillsPluginRoot(skillsDir string) string {
+	return filepath.Dir(filepath.Clean(skillsDir))
+}
+
+func prepareClaudeDesktopSkillsPlugin(skillsDir string, dryRun bool) (bool, error) {
+	if dryRun {
+		return false, nil
+	}
+	root := claudeDesktopSkillsPluginRoot(skillsDir)
+	pluginJSON := filepath.Join(root, ".claude-plugin", "plugin.json")
+	changed := false
+
+	if err := os.MkdirAll(filepath.Join(root, ".claude-plugin"), 0o700); err != nil {
+		return false, err
+	}
+	if err := os.MkdirAll(skillsDir, 0o700); err != nil {
+		return false, err
+	}
+
+	manifest := map[string]any{
+		"name":        "anthropic-skills",
+		"version":     "1.0.0",
+		"description": "Anthropic-managed skills for Claude Desktop",
+	}
+	if normalizeFileJSON(pluginJSON) != normalizeJSON(manifest) {
+		if err := tx.WriteJSONAtomic(pluginJSON, manifest); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
+}
+
+func updateClaudeDesktopSkillsManifest(skillsDir string, srcSkills map[string]string, prevManaged []string, dryRun bool) (bool, error) {
+	root := claudeDesktopSkillsPluginRoot(skillsDir)
+	manifestPath := filepath.Join(root, "manifest.json")
+
+	current := map[string]any{}
+	if data, err := os.ReadFile(manifestPath); err == nil {
+		_ = json.Unmarshal(data, &current)
+	}
+
+	managedNow := make(map[string]bool, len(srcSkills))
+	for name := range srcSkills {
+		managedNow[name] = true
+	}
+	previouslyManaged := make(map[string]bool, len(prevManaged))
+	for _, name := range prevManaged {
+		previouslyManaged[name] = true
+	}
+
+	var preserved []any
+	if raw, ok := current["skills"].([]any); ok {
+		for _, item := range raw {
+			entry, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			name, _ := entry["name"].(string)
+			if name == "" {
+				continue
+			}
+			if managedNow[name] {
+				continue
+			}
+			if isAgentctlManifestEntry(entry) || previouslyManaged[name] {
+				continue
+			}
+			preserved = append(preserved, entry)
+		}
+	}
+
+	for _, name := range sortedKeys(srcSkills) {
+		preserved = append(preserved, map[string]any{
+			"skillId":         name,
+			"name":            name,
+			"description":     readSkillDescription(srcSkills[name]),
+			"creatorType":     "user",
+			"syncManaged":     false,
+			"agentctlManaged": true,
+			"updatedAt":       tx.UTCNowISO(),
+			"enabled":         true,
+		})
+	}
+
+	next := map[string]any{
+		"lastUpdated": time.Now().UnixMilli(),
+		"skills":      preserved,
+	}
+	if normalizeFileJSON(manifestPath) == normalizeJSON(next) {
+		return false, nil
+	}
+	if dryRun {
+		return true, nil
+	}
+	if err := tx.WriteJSONAtomic(manifestPath, next); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func isAgentctlManifestEntry(entry map[string]any) bool {
+	v, ok := entry["agentctlManaged"].(bool)
+	return ok && v
+}
+
+func readSkillDescription(skillDir string) string {
+	data, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+	if err != nil {
+		data, err = os.ReadFile(filepath.Join(skillDir, "skill.md"))
+		if err != nil {
+			return ""
+		}
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return ""
+	}
+	for _, line := range lines[1:] {
+		line = strings.TrimSpace(line)
+		if line == "---" {
+			break
+		}
+		if strings.HasPrefix(line, "description:") {
+			value := strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+			return strings.Trim(value, `"'`)
+		}
+	}
+	return ""
+}
+
+func normalizeFileJSON(path string) string {
+	data, err := tx.ReadJSON(path)
+	if err != nil {
+		return ""
+	}
+	return normalizeJSON(data)
+}
+
+func normalizeJSON(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────

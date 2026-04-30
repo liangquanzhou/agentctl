@@ -51,10 +51,32 @@ func builtinAgents() map[string]AgentDefinition {
 			SkillsTarget:   filepath.Join(h, ".claude", "skills"),
 			BinaryNames:    []string{"claude"},
 		},
+		"claude-desktop": {
+			Name:           "claude-desktop",
+			Aliases:        []string{},
+			DisplayOrder:   2,
+			MCPFileType:    "json",
+			MCPPath:        filepath.Join(h, "Library", "Application Support", "Claude", "claude_desktop_config.json"),
+			MCPInjectKey:   "mcpServers",
+			MCPManagedKeys: []string{"mcpServers"},
+			SkillsTarget:   claudeDesktopSkillsTarget("Claude"),
+			BinaryNames:    []string{},
+		},
+		"claude-3p": {
+			Name:           "claude-3p",
+			Aliases:        []string{"cowork-3p", "claude-cowork-3p"},
+			DisplayOrder:   3,
+			MCPFileType:    "json",
+			MCPPath:        filepath.Join(h, "Library", "Application Support", "Claude-3p", "claude_desktop_config.json"),
+			MCPInjectKey:   "mcpServers",
+			MCPManagedKeys: []string{"mcpServers"},
+			SkillsTarget:   claudeDesktopSkillsTarget("Claude-3p"),
+			BinaryNames:    []string{},
+		},
 		"codex": {
 			Name:           "codex",
 			Aliases:        []string{},
-			DisplayOrder:   2,
+			DisplayOrder:   4,
 			MCPFileType:    "codex_toml",
 			MCPPath:        filepath.Join(h, ".codex", "config.toml"),
 			MCPInjectKey:   "mcp_servers",
@@ -66,7 +88,7 @@ func builtinAgents() map[string]AgentDefinition {
 		"gemini-cli": {
 			Name:           "gemini-cli",
 			Aliases:        []string{"gemini"},
-			DisplayOrder:   3,
+			DisplayOrder:   5,
 			MCPFileType:    "json",
 			MCPPath:        filepath.Join(h, ".gemini", "settings.json"),
 			MCPInjectKey:   "mcpServers",
@@ -78,7 +100,7 @@ func builtinAgents() map[string]AgentDefinition {
 		"antigravity": {
 			Name:           "antigravity",
 			Aliases:        []string{},
-			DisplayOrder:   4,
+			DisplayOrder:   6,
 			MCPFileType:    "json",
 			MCPPath:        filepath.Join(h, ".gemini", "antigravity", "mcp_config.json"),
 			MCPInjectKey:   "mcpServers",
@@ -90,7 +112,7 @@ func builtinAgents() map[string]AgentDefinition {
 		"opencode": {
 			Name:           "opencode",
 			Aliases:        []string{},
-			DisplayOrder:   5,
+			DisplayOrder:   7,
 			MCPFileType:    "opencode_json",
 			MCPPath:        filepath.Join(h, ".config", "opencode", "opencode.json"),
 			MCPInjectKey:   "mcp",
@@ -102,7 +124,7 @@ func builtinAgents() map[string]AgentDefinition {
 		"openclaw": {
 			Name:           "openclaw",
 			Aliases:        []string{},
-			DisplayOrder:   6,
+			DisplayOrder:   8,
 			MCPFileType:    "openclaw_json",
 			MCPPath:        filepath.Join(h, ".openclaw", "openclaw.json"),
 			MCPInjectKey:   "mcp.servers",
@@ -114,7 +136,7 @@ func builtinAgents() map[string]AgentDefinition {
 		"trae-cn": {
 			Name:           "trae-cn",
 			Aliases:        []string{},
-			DisplayOrder:   7,
+			DisplayOrder:   9,
 			MCPFileType:    "json",
 			MCPPath:        filepath.Join(h, "Library", "Application Support", "Trae CN", "User", "mcp.json"),
 			MCPInjectKey:   "mcpServers",
@@ -124,6 +146,37 @@ func builtinAgents() map[string]AgentDefinition {
 			BinaryNames:    []string{},
 		},
 	}
+}
+
+func claudeOrgPluginSkillsTarget(pluginName string) string {
+	return filepath.Join(string(filepath.Separator), "Library", "Application Support", "Claude", "org-plugins", pluginName, "skills")
+}
+
+func isClaudeOrgPluginPath(path string) bool {
+	clean := filepath.Clean(path)
+	prefix := filepath.Join(string(filepath.Separator), "Library", "Application Support", "Claude", "org-plugins") + string(filepath.Separator)
+	return strings.HasPrefix(clean, prefix)
+}
+
+func claudeDesktopSkillsTarget(appSupportDir string) string {
+	base := filepath.Join(home(), "Library", "Application Support", appSupportDir, "local-agent-mode-sessions", "skills-plugin")
+	matches, err := filepath.Glob(filepath.Join(base, "*", "*", "skills"))
+	if err != nil || len(matches) == 0 {
+		return ""
+	}
+
+	var candidates []string
+	for _, match := range matches {
+		pluginRoot := filepath.Dir(match)
+		if info, err := os.Stat(filepath.Join(pluginRoot, ".claude-plugin", "plugin.json")); err == nil && !info.IsDir() {
+			candidates = append(candidates, match)
+		}
+	}
+	if len(candidates) == 0 {
+		candidates = matches
+	}
+	sort.Strings(candidates)
+	return candidates[0]
 }
 
 // DefaultAgentsDir returns the default TOML agents directory.
@@ -184,7 +237,7 @@ func parseTOML(path string) (AgentDefinition, error) {
 	var expandedSkillsTarget string
 	if skillsDir != "" {
 		expandedSkillsTarget = tx.ExpandUser(skillsDir)
-		if err := tx.IsUnderHome(expandedSkillsTarget); err != nil {
+		if err := tx.IsUnderHome(expandedSkillsTarget); err != nil && !isClaudeOrgPluginPath(expandedSkillsTarget) {
 			return AgentDefinition{}, fmt.Errorf("agent %q: skills.target_dir %w", name, err)
 		}
 	}

@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"agentctl/internal/agents"
 )
 
 // SkillsConfig controls per-agent skill filtering.
@@ -75,7 +78,7 @@ func (c *SkillsConfig) FilteredSkills(agentName string, allSkills map[string]str
 	if c == nil {
 		return allSkills
 	}
-	spec, ok := c.Agents[agentName]
+	spec, ok := c.lookupAgentSpec(agentName)
 	if !ok || len(spec.Skills) == 0 {
 		return allSkills
 	}
@@ -96,4 +99,32 @@ func (c *SkillsConfig) FilteredSkills(agentName string, allSkills map[string]str
 		}
 	}
 	return filtered
+}
+
+func (c *SkillsConfig) lookupAgentSpec(agentName string) (AgentSkillsSpec, bool) {
+	if c == nil {
+		return AgentSkillsSpec{}, false
+	}
+	if spec, ok := c.Agents[agentName]; ok {
+		return spec, true
+	}
+
+	registry := agents.LoadAgentRegistry("")
+	aliasMap := agents.BuildAliasMap(registry)
+	canonical, ok := aliasMap[strings.ToLower(agentName)]
+	if !ok {
+		return AgentSkillsSpec{}, false
+	}
+	if spec, ok := c.Agents[canonical]; ok {
+		return spec, true
+	}
+
+	if defn, ok := registry[canonical]; ok {
+		for _, alias := range defn.Aliases {
+			if spec, ok := c.Agents[alias]; ok {
+				return spec, true
+			}
+		}
+	}
+	return AgentSkillsSpec{}, false
 }

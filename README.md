@@ -57,6 +57,8 @@ agentctl status
 | Agent | Config Format | MCP Config Path |
 |-------|--------------|-----------------|
 | **Claude Code** | JSON | `~/.claude.json` |
+| **Claude Desktop** | JSON | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| **Claude Cowork 3P** | JSON | `~/Library/Application Support/Claude-3p/claude_desktop_config.json` |
 | **Codex** | TOML | `~/.codex/config.toml` |
 | **Gemini CLI** | JSON | `~/.gemini/settings.json` |
 | **Antigravity** | JSON | `~/.gemini/antigravity/mcp_config.json` |
@@ -71,6 +73,8 @@ Custom agents can be added via TOML overrides in `~/.config/agentctl/agents/`.
 | Agent | MCP | Rules | Hooks | Commands | Ignore | Skills |
 |-------|:---:|:-----:|:-----:|:--------:|:------:|:------:|
 | **Claude Code** | ✅ | ✅ | ✅ events | ✅ | ✅ | ✅ |
+| **Claude Desktop** | ✅ | ❌ ⁸ | ❌ ⁸ | ❌ ⁸ | ❌ ⁸ | ✅ ⁹ |
+| **Claude Cowork 3P** | ✅ | ❌ ⁸ | ❌ ⁸ | ❌ ⁸ | ❌ ⁸ | ✅ ⁹ |
 | **Codex** | ✅ | ✅ | ✅ notify | ❌ ² | ❌ ³ | ✅ |
 | **Gemini CLI** | ✅ | ✅ | ✅ events | ✅ .toml | ❌ ⁴ | ✅ |
 | **Antigravity** | ✅ | ✅ shared | ✅ shared | ❌ ² | ❌ ⁴ | ✅ |
@@ -86,6 +90,8 @@ Custom agents can be added via TOML overrides in `~/.config/agentctl/agents/`.
 > 5. OpenCode reuses `.gitignore` and has no dedicated ignore file
 > 6. OpenClaw currently supports MCP and Skills only; rules, hooks, commands, and ignore are not yet investigated
 > 7. Trae CN currently supports MCP and Skills only; rules, hooks, commands, and ignore support is not yet investigated
+> 8. Desktop/Cowork content features are managed through Claude's plugin system, not agentctl rules/hooks/commands/ignore targets
+> 9. Cowork 3P skills are deployed into Claude Desktop's local skills-plugin cache under `~/Library/Application Support/Claude-3p/local-agent-mode-sessions/skills-plugin/<org>/<account>/skills`
 >
 > "shared" means Antigravity shares Gemini CLI's config files (`~/.gemini/GEMINI.md`, `~/.gemini/settings.json`), so it inherits rules and hooks automatically.
 

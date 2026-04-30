@@ -174,6 +174,33 @@ func TestSkillsStatus_EmptyTargets(t *testing.T) {
 	}
 }
 
+func TestSkillsConfig_FilteredSkillsMatchesAliases(t *testing.T) {
+	allSkills := map[string]string{
+		"alpha": "/tmp/alpha",
+		"beta":  "/tmp/beta",
+	}
+
+	cfgByCanonical := &SkillsConfig{
+		Agents: map[string]AgentSkillsSpec{
+			"claude-code": {Skills: []string{"alpha"}},
+		},
+	}
+	filtered := cfgByCanonical.FilteredSkills("claude", allSkills)
+	if len(filtered) != 1 || filtered["alpha"] == "" {
+		t.Fatalf("alias target should match canonical skills config, got %#v", filtered)
+	}
+
+	cfgByAlias := &SkillsConfig{
+		Agents: map[string]AgentSkillsSpec{
+			"claude": {Skills: []string{"beta"}},
+		},
+	}
+	filtered = cfgByAlias.FilteredSkills("claude-code", allSkills)
+	if len(filtered) != 1 || filtered["beta"] == "" {
+		t.Fatalf("canonical target should match alias skills config, got %#v", filtered)
+	}
+}
+
 // ── SkillsSync ───────────────────────────────────────────────────────
 
 func TestSkillsSync_CopiesAndRemovesStale(t *testing.T) {
@@ -242,6 +269,96 @@ func TestSkillsSync_CopiesAndRemovesStale(t *testing.T) {
 	// alpha should still exist.
 	if _, err := os.Stat(filepath.Join(tgtDir, "alpha", "SKILL.md")); err != nil {
 		t.Error("alpha should still exist after sync")
+	}
+}
+
+func TestSkillsSync_PreparesClaudeOrgPlugin(t *testing.T) {
+	srcDir := t.TempDir()
+	stateDir := t.TempDir()
+	targetDir := filepath.Join(t.TempDir(), "Library", "Application Support", "Claude", "org-plugins", "agentctl-skills", "skills")
+
+	createSkill(t, srcDir, "alpha", "# Alpha skill", nil)
+	if err := os.Chmod(filepath.Join(srcDir, "alpha", "SKILL.md"), 0o600); err != nil {
+		t.Fatalf("failed to chmod source skill: %v", err)
+	}
+
+	result := SkillsSync(srcDir, map[string]string{"cowork-3p": targetDir}, stateDir, false)
+	if errs, ok := result["errors"]; ok {
+		t.Fatalf("SkillsSync returned errors: %#v", errs)
+	}
+
+	pluginRoot := filepath.Dir(targetDir)
+	for _, path := range []string{
+		filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"),
+		filepath.Join(pluginRoot, "version.json"),
+		filepath.Join(targetDir, "alpha", "SKILL.md"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to exist: %v", path, err)
+		}
+	}
+
+	for _, tc := range []struct {
+		path string
+		mode os.FileMode
+	}{
+		{filepath.Join(pluginRoot, ".claude-plugin"), 0o755},
+		{filepath.Join(pluginRoot, "skills"), 0o755},
+		{filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"), 0o644},
+		{filepath.Join(pluginRoot, "version.json"), 0o644},
+		{filepath.Join(targetDir, "alpha", "SKILL.md"), 0o644},
+	} {
+		info, err := os.Stat(tc.path)
+		if err != nil {
+			t.Fatalf("stat %s: %v", tc.path, err)
+		}
+		if got := info.Mode().Perm(); got != tc.mode {
+			t.Fatalf("%s mode = %v, want %v", tc.path, got, tc.mode)
+		}
+	}
+}
+
+func TestSkillsSync_UpdatesClaudeDesktopSkillsManifest(t *testing.T) {
+	srcDir := t.TempDir()
+	stateDir := t.TempDir()
+	targetDir := filepath.Join(t.TempDir(), "Library", "Application Support", "Claude-3p", "local-agent-mode-sessions", "skills-plugin", "org-id", "account-id", "skills")
+
+	createSkill(t, srcDir, "alpha", "---\ndescription: Alpha description\n---\n# Alpha skill", nil)
+
+	result := SkillsSync(srcDir, map[string]string{"cowork-3p": targetDir}, stateDir, false)
+	if errs, ok := result["errors"]; ok {
+		t.Fatalf("SkillsSync returned errors: %#v", errs)
+	}
+
+	pluginRoot := filepath.Dir(targetDir)
+	for _, path := range []string{
+		filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"),
+		filepath.Join(pluginRoot, "manifest.json"),
+		filepath.Join(targetDir, "alpha", "SKILL.md"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to exist: %v", path, err)
+		}
+	}
+
+	data, err := os.ReadFile(filepath.Join(pluginRoot, "manifest.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	rawSkills, ok := manifest["skills"].([]any)
+	if !ok || len(rawSkills) != 1 {
+		t.Fatalf("manifest skills = %#v, want one skill", manifest["skills"])
+	}
+	entry := rawSkills[0].(map[string]any)
+	if entry["name"] != "alpha" || entry["creatorType"] != "user" || entry["syncManaged"] != false || entry["agentctlManaged"] != true {
+		t.Fatalf("unexpected manifest entry: %#v", entry)
+	}
+	if entry["description"] != "Alpha description" {
+		t.Fatalf("description = %q, want Alpha description", entry["description"])
 	}
 }
 

@@ -293,6 +293,15 @@ func TestHelperFunctions(t *testing.T) {
 	})
 }
 
+func TestFilterSkillsTargetsMatchesAliases(t *testing.T) {
+	targets := map[string]string{"claude": "/tmp/claude"}
+
+	filtered := filterSkillsTargets(targets, "claude-code")
+	if len(filtered) != 1 || filtered["claude"] != "/tmp/claude" {
+		t.Fatalf("expected canonical target to match alias key, got %#v", filtered)
+	}
+}
+
 // TestDefaultPaths verifies the default path functions return sane values.
 func TestDefaultPaths(t *testing.T) {
 	home, err := os.UserHomeDir()

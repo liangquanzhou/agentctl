@@ -3,7 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
+	"agentctl/internal/agents"
 	"agentctl/internal/skills"
 
 	"github.com/spf13/cobra"
@@ -150,6 +152,18 @@ func runSkillsSync(cmd *cobra.Command, args []string) error {
 		}
 	}
 	PrintTable("Skills Sync", headers, rows)
+	if errorsRaw, ok := data["errors"]; ok {
+		fmt.Println(red("skills sync had errors") + ":")
+		if errList, ok := errorsRaw.([]string); ok {
+			for _, e := range errList {
+				fmt.Println("  - " + e)
+			}
+		} else {
+			fmt.Printf("  - %v\n", errorsRaw)
+		}
+		fmt.Printf("actions=%v dry_run=%v\n", data["actions"], data["dry_run"])
+		os.Exit(1)
+	}
 	fmt.Printf("actions=%v dry_run=%v\n", data["actions"], data["dry_run"])
 	return nil
 }
@@ -220,6 +234,22 @@ func newSkillsPullCmd() *cobra.Command {
 func filterSkillsTargets(targets map[string]string, target string) map[string]string {
 	if dir, ok := targets[target]; ok {
 		return map[string]string{target: dir}
+	}
+
+	registry := agents.LoadAgentRegistry("")
+	aliasMap := agents.BuildAliasMap(registry)
+	canonical, ok := aliasMap[strings.ToLower(target)]
+	if !ok {
+		return map[string]string{}
+	}
+
+	for key, dir := range targets {
+		if keyCanonical, ok := aliasMap[strings.ToLower(key)]; ok && keyCanonical == canonical {
+			return map[string]string{key: dir}
+		}
+	}
+	if dir, ok := agents.BuildSkillsTargets(registry)[canonical]; ok {
+		return map[string]string{canonical: dir}
 	}
 	return map[string]string{}
 }
