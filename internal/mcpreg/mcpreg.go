@@ -299,11 +299,17 @@ func MCPRm(configDir, name string, opts RmOpts) (map[string]any, error) {
 		node := ensureNestedMap(profilesServers, name)
 		node["disabled_for"] = toAnySlice(sortedStrings(targets))
 
-		compatDisabled[name] = map[string]any{
-			"reason":  "manual disable",
-			"date":    tx.TodayISO(),
-			"scope":   "global",
-			"restore": fmt.Sprintf("agentctl mcp add %s --all", name),
+		// Only write to legacy compat.disabled_map when legacy mode is on.
+		// In new schema (legacy_enabled=false), disabled_for in profiles.json
+		// is the source of truth; writing disabled_map would violate the
+		// schema invariant validated in validate.go.
+		if tx.GetBool(compat, "legacy_enabled", true) {
+			compatDisabled[name] = map[string]any{
+				"reason":  "manual disable",
+				"date":    tx.TodayISO(),
+				"scope":   "global",
+				"restore": fmt.Sprintf("agentctl mcp add %s --all", name),
+			}
 		}
 	}
 
